@@ -1,0 +1,530 @@
+{
+  "115": {
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 0.6,
+      "multiple": 32
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Resolution Selector (Size)"
+    }
+  },
+  "119": {
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "120": {
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "121": {
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "120",
+        0
+      ]
+    },
+    "class_type": "VAEDecodeAudio",
+    "_meta": {
+      "title": "VAE Decode Audio"
+    }
+  },
+  "122": {
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "123": {
+    "inputs": {
+      "sampler_name": "res_multistep"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "124": {
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 4,
+      "denoise": 1,
+      "model": [
+        "226",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "BasicScheduler"
+    }
+  },
+  "125": {
+    "inputs": {
+      "noise": [
+        "129",
+        0
+      ],
+      "guider": [
+        "126",
+        0
+      ],
+      "sampler": [
+        "164",
+        0
+      ],
+      "sigmas": [
+        "124",
+        0
+      ],
+      "latent_image": [
+        "182",
+        1
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "126": {
+    "inputs": {
+      "model": [
+        "226",
+        0
+      ],
+      "conditioning": [
+        "182",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "Basic Guider"
+    }
+  },
+  "127": {
+    "inputs": {
+      "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "128": {
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "129": {
+    "inputs": {
+      "noise_seed": 434988161418514
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "130": {
+    "inputs": {
+      "fps": 24,
+      "bit_depth": 8,
+      "images": [
+        "122",
+        0
+      ],
+      "audio": [
+        "121",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "131": {
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": [
+        "132",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "132": {
+    "inputs": {
+      "value": 7
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Float (Duration)"
+    }
+  },
+  "138": {
+    "inputs": {
+      "value": "subject_definitions:\n\n<Subject 1> is Cartman, the protagonist on the left side of <Image 1>. Preserve his exact established look throughout the entire video without redesign: a compact, stocky anime-styled boy with a blue knit winter hat featuring a yellow band and a yellow pom-pom, dark hair visible under the hat, a red hooded jacket, dark blue pants, gloves, and dark shoes. His stance is grounded and combative, with both fists raised. His expression and body language must stay serious, determined, and focused. He is not cheerful or comedic.\n\n<Subject 2> is Evil Cartman, the antagonist on the right side of <Image 1>. Preserve his exact established look throughout the entire video without redesign: a dark hooded version of Cartman with a shadowed face, a red hooded outer layer, dark pants, dark boots, and a menacing green supernatural aura. His eyes glow with an eerie green intensity beneath the hood. His silhouette is threatening, slightly taller and more ominous in posture than Cartman, and his demeanor is calm, dangerous, and confident.\n\n<Image 1> is the source frame. It establishes the dark forest battleground: bare twisted trees, wet reflective ground, green lightning and magical energy in the environment, floating debris, and circular glowing patterns around the fighters’ feet.\n\nsummary:\n\nUse <Image 1> as the starting frame. Continue the battle in a single uninterrupted dark anime action shot. Cartman and Evil Cartman engage in more close-range fighting, trading punches, kicks, blocks, and evasive movements while maintaining their exact established appearances. Green energy swirls around them, the environment reacts to every impact, and the tone remains serious, intense, and supernatural.\n\nretention_analysis:\n\n<Subject 1>: fully_preserved - retain Cartman’s blue-and-yellow winter hat, dark hair, red hooded jacket, dark blue pants, gloves, shoes, compact build, and serious determined demeanor while animating him through aggressive melee combat.\n\n<Subject 2>: fully_preserved - retain Evil Cartman’s hooded red outerwear, dark pants, dark boots, shadowed face, glowing green eyes, green aura, and threatening silhouette while animating him through precise and powerful melee counters.\n\n<Image 1>: fully_preserved - retain the dark forest, reflective wet ground, leafless trees, green lightning glow, floating debris, and circular glowing energy markings during the fight.\n\ndetailed_description:\n\nBegin exactly from <Image 1>, with Cartman on the left and Evil Cartman on the right, both already squared up in fighting stances inside the glowing circular energy patterns. The dark forest is drenched in green supernatural light, and the ground beneath them is wet, reflective, and alive with faint electrical cracks. Maintain a serious, dark anime tone with no comedic behavior.\n\nThe fight resumes immediately. Cartman steps in first with a fast straight punch aimed at Evil Cartman’s torso, then follows with a second aggressive strike from the opposite hand. Evil Cartman reacts smoothly, shifting his upper body to avoid the first hit and deflecting the second with a tight guarded motion. He then answers with a short, sharp counterpunch and a rising kick, forcing Cartman to brace, recoil, and reset his footing. Keep the choreography clear and physical, with distinct attacks, blocks, and counters rather than chaotic blur.\n\nThe camera stays in one continuous shot and moves dynamically around the fighters at close range, subtly arcing and repositioning to keep the exchange readable. As they circle each other, Cartman lunges forward again with determined force, throwing a body shot and a sweeping kick. Evil Cartman slips the attack, pivots with unsettling calm, and retaliates with a spinning back kick and another forward strike. Cartman narrowly blocks and stumbles half a step in the shallow water before driving back in.\n\nEvery impact should disturb the environment. Their feet splash through puddles, droplets scatter across the glowing ground, and small stones and broken branches jump from the shock of each heavy clash. Green supernatural energy swells around Evil Cartman and spills outward in rippling arcs, while Cartman pushes through the glow with grit and determination. Electrical filaments crawl across the wet surface, and floating debris shakes or lifts slightly during the strongest hits.\n\nPreserve both characters’ looks exactly throughout the shot. Cartman must remain instantly recognizable by his blue-and-yellow hat, red jacket, and compact fighter’s posture. Evil Cartman must remain instantly recognizable by his hooded red outerwear, dark silhouette, glowing green eyes, and eerie green aura. Neither changes costume or form.\n\nAs the exchange intensifies, they trade a brief flurry of punches and kicks at near point-blank range, then separate just enough to square up again, both still battle-ready and surrounded by swirling green energy. End with the fight still actively underway, both locked in serious confrontation in the glowing forest.\n\noverall_soundscape:\n\nNo reference audio is supplied. Use a dark supernatural combat soundscape: heavy wet footsteps, splashes from puddles, sharp punch and kick impacts, clothing movement, low forest wind, crackling green electricity, rumbling magical surges, scattering debris, and a persistent ominous environmental hum. No dialogue.\n\nnon_diegetic_music:\n\nN/A"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Input Text (Prompt)"
+    }
+  },
+  "139": {
+    "inputs": {
+      "image": "pasted/image (30).png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "FIRST FRAME"
+    }
+  },
+  "145": {
+    "inputs": {
+      "model": [
+        "152",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+    "_meta": {
+      "title": "MiniMax H3 Mem Eff Sage Attention Patch"
+    }
+  },
+  "152": {
+    "inputs": {
+      "lora_name": "H3\\minimax_h3_turbo_v4_step600_ema.safetensors",
+      "strength": 1,
+      "low_vram": false,
+      "model": [
+        "207",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3TurboLoRA",
+    "_meta": {
+      "title": "MiniMax-H3 Turbo LoRA"
+    }
+  },
+  "154": {
+    "inputs": {},
+    "class_type": "MiniMaxH3TurboSampler",
+    "_meta": {
+      "title": "MiniMax-H3 Turbo Sampler (4-step)"
+    }
+  },
+  "164": {
+    "inputs": {
+      "boolean": true,
+      "on_true": [
+        "154",
+        0
+      ],
+      "on_false": [
+        "123",
+        0
+      ]
+    },
+    "class_type": "easy ifElse",
+    "_meta": {
+      "title": "TURBO??"
+    }
+  },
+  "182": {
+    "inputs": {
+      "prompt": [
+        "138",
+        0
+      ],
+      "width": [
+        "115",
+        0
+      ],
+      "height": [
+        "115",
+        1
+      ],
+      "length": [
+        "131",
+        1
+      ],
+      "clip": [
+        "207",
+        1
+      ],
+      "vae": [
+        "119",
+        0
+      ],
+      "first_frame": [
+        "233",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3ImageToVideo",
+    "_meta": {
+      "title": "MiniMax H3 Image to Video"
+    }
+  },
+  "207": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": false,
+        "lora": "HMNSFW_AIO_V2.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": false,
+        "lora": "H3\\H3_Mis_Insrt_v07.safetensors",
+        "strength": 1
+      },
+      "lora_3": {
+        "on": false,
+        "lora": "H3\\HMPenis_v2_e35.safetensors",
+        "strength": 1
+      },
+      "lora_4": {
+        "on": false,
+        "lora": "H3\\IcytwerkPROMAX-H3-v1-700ish.safetensors",
+        "strength": 1
+      },
+      "lora_5": {
+        "on": false,
+        "lora": "H3\\MM-H3 - Blowjob.safetensors",
+        "strength": 1
+      },
+      "lora_6": {
+        "on": false,
+        "lora": "H3\\NaughtyTimes_pruned_r128_v2.safetensors",
+        "strength": 1
+      },
+      "lora_7": {
+        "on": false,
+        "lora": "H3\\deepthroat_v1.safetensors",
+        "strength": 1
+      },
+      "lora_8": {
+        "on": false,
+        "lora": "H3\\VBVR_H3_attn_only 1.0.safetensors",
+        "strength": 1
+      },
+      "lora_9": {
+        "on": false,
+        "lora": "H3\\moawxx_000002000 - 0.6 – 0.85.safetensors",
+        "strength": 0.6
+      },
+      "lora_10": {
+        "on": false,
+        "lora": "H3\\riding_pose_H3_i2v_v1.0.safetensors",
+        "strength": 1
+      },
+      "lora_11": {
+        "on": false,
+        "lora": "H3\\vagassist_e40.safetensors",
+        "strength": 1
+      },
+      "lora_12": {
+        "on": false,
+        "lora": "H3\\10Eros_Max_diff.safetensors",
+        "strength": 1
+      },
+      "lora_13": {
+        "on": true,
+        "lora": "H3\\H3_Combat_V2.safetensors",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "127",
+        0
+      ],
+      "clip": [
+        "128",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "220": {
+    "inputs": {
+      "expression": "a - 2",
+      "values.a": [
+        "131",
+        1
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "221": {
+    "inputs": {
+      "select": [
+        "220",
+        1
+      ],
+      "frames": [
+        "122",
+        0
+      ]
+    },
+    "class_type": "Frame Select",
+    "_meta": {
+      "title": "Frame Select"
+    }
+  },
+  "222": {
+    "inputs": {
+      "images": [
+        "221",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "224": {
+    "inputs": {
+      "enabled": true,
+      "tau": 1.2,
+      "min_seq_len": 8192,
+      "preserve_prefix_blocks": 0,
+      "log_every": 200,
+      "protect_prefix": true,
+      "dense_prefix_queries": false,
+      "dense_first_percent": 0.2,
+      "dense_first_blocks": 2,
+      "end_percent": 1,
+      "dense_blocks": "",
+      "approx_correction": true,
+      "cornish_fisher": false,
+      "morton": true,
+      "morton_curve": "2d_frame",
+      "model": [
+        "145",
+        0
+      ]
+    },
+    "class_type": "SolAttnMiniMaxH3",
+    "_meta": {
+      "title": "Sol-Attn MiniMax H3"
+    }
+  },
+  "226": {
+    "inputs": {
+      "threshold": 0.18,
+      "warmup_steps": 1,
+      "max_consecutive_reuse": 1,
+      "start_percent": 0,
+      "end_percent": 1,
+      "downsample_factor": 1,
+      "verbose": false,
+      "model": [
+        "224",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3FirstBlockCache",
+    "_meta": {
+      "title": "MiniMax H3 First Block Cache"
+    }
+  },
+  "231": {
+    "inputs": {
+      "frame_rate": 24,
+      "loop_count": 0,
+      "filename_prefix": "FFLF",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "122",
+        0
+      ],
+      "audio": [
+        "121",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  },
+  "233": {
+    "inputs": {
+      "width": [
+        "115",
+        0
+      ],
+      "height": [
+        "115",
+        1
+      ],
+      "upscale_method": "nearest-exact",
+      "keep_proportion": "crop",
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 2,
+      "device": "cpu",
+      "image": [
+        "139",
+        0
+      ]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {
+      "title": "Resize Image v2"
+    }
+  }
+}

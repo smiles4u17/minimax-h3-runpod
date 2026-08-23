@@ -1,0 +1,34 @@
+{
+  "input": {
+    "task": "r2v",
+    "prompt": "Use <Picture 1> and <Picture 2> as identity and scene references. Use <Audio 1> as the voice reference.",
+    "references": [
+      {
+        "name": "picture_1.png",
+        "url": "https://example.com/picture_1.png"
+      },
+      {
+        "name": "picture_2.png",
+        "url": "https://example.com/picture_2.png"
+      }
+    ],
+    "audio": {
+      "name": "audio_1.wav",
+      "url": "https://example.com/audio_1.wav"
+    },
+    "use_reference_audio_as_output": false,
+    "duration": 5,
+    "megapixels": 0.6,
+    "steps": 6,
+    "cache_threshold": 0.18,
+    "attention": "auto",
+    "loras": [
+      {
+        "name": "H3/H3_Combat_V2.safetensors",
+        "strength": 1.0
+      }
+    ],
+    "filename_prefix": "r2v"
+  }
+}
+

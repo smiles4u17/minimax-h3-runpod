@@ -1,0 +1,23 @@
+{
+  "input": {
+    "task": "fl2v",
+    "prompt": "A cinematic one-shot battle in a dark forest with synchronized impacts and environmental audio.",
+    "first_frame": {
+      "name": "first.png",
+      "url": "https://example.com/first.png"
+    },
+    "last_frame": {
+      "name": "last.png",
+      "url": "https://example.com/last.png"
+    },
+    "duration": 5,
+    "megapixels": 0.6,
+    "steps": 6,
+    "seed": 123456789,
+    "cache_threshold": 0.18,
+    "attention": "auto",
+    "loras": [],
+    "filename_prefix": "fl2v"
+  }
+}
+
