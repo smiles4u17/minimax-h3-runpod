@@ -3,7 +3,7 @@
 Production RunPod Serverless worker generated from the supplied FL2V/I2V and R2V ComfyUI workflows.
 
 ## What is included
-
+ 
 - ComfyUI v0.33.1
 - MiniMax H3 FL2VA and Ref2VA pruned INT8 ConvRot models
 - MiniMax H3 video and audio VAEs
