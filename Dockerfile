@@ -1,43 +1,16 @@
 # syntax=docker/dockerfile:1.7
 
 ARG WORKER_BASE=runpod/worker-comfyui:5.8.6-base
-ARG SAGEATTENTION_REF=eb615cf6cf4d221338033340ee2de1c37fbdba4a
-ARG CUDA_DEVEL_IMAGE=nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+ARG SAGEATTENTION_WHEEL_URL=https://huggingface.co/JahJedi/sageattention-flashattn-blackwell-cu130-torch211-cp312/resolve/main/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
+ARG SAGEATTENTION_WHEEL_SHA256=4a47a462059bf09b7d10be68f93a0a462dd6184068298fc6ff10e94751fa6dd4
 ARG TORCH_VERSION=2.11.0
 ARG TORCHVISION_VERSION=0.26.0
 ARG TORCHAUDIO_VERSION=2.11.0
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
 
-FROM ${CUDA_DEVEL_IMAGE} AS sage-builder
-ARG TORCH_VERSION
-ARG TORCHVISION_VERSION
-ARG TORCHAUDIO_VERSION
-ARG TORCH_INDEX_URL
-ARG SAGEATTENTION_REF
-ENV DEBIAN_FRONTEND=noninteractive \
-    PIP_NO_CACHE_DIR=1 \
-    EXT_PARALLEL=4 \
-    NVCC_APPEND_FLAGS="--threads 8" \
-    MAX_JOBS=16 \
-    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0" \
-    LIBRARY_PATH="/usr/local/cuda/lib64/stubs"
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      git python3 python3-dev python3-pip python3-venv build-essential ninja-build \
-    && rm -rf /var/lib/apt/lists/*
-RUN python3 -m venv /build/venv \
-    && /build/venv/bin/pip install --upgrade pip ninja \
-    && /build/venv/bin/pip install \
-      "torch==${TORCH_VERSION}" \
-      "torchvision==${TORCHVISION_VERSION}" \
-      "torchaudio==${TORCHAUDIO_VERSION}" \
-      --index-url "${TORCH_INDEX_URL}" \
-    && /build/venv/bin/pip install \
-      "setuptools>=62,<75" "wheel>=0.38,<0.44" "packaging>=21,<24" \
-    && /build/venv/bin/pip wheel \
-      "git+https://github.com/thu-ml/SageAttention.git@${SAGEATTENTION_REF}" \
-      --no-build-isolation --no-deps --wheel-dir /wheels
-
 FROM ${WORKER_BASE} AS runtime
+ARG SAGEATTENTION_WHEEL_URL
+ARG SAGEATTENTION_WHEEL_SHA256
 ARG TORCH_VERSION
 ARG TORCHVISION_VERSION
 ARG TORCHAUDIO_VERSION
@@ -53,6 +26,7 @@ ENV COMFY_ROOT=/comfyui \
     ATTENTION_MODE=auto \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    UV_HTTP_TIMEOUT=900 \
     HF_HUB_ENABLE_HF_TRANSFER=1
 
 RUN uv pip install --force-reinstall \
@@ -84,10 +58,13 @@ RUN set -eux; \
       [ ! -f "$requirements" ] || uv pip install -r "$requirements"; \
     done
 
-COPY --from=sage-builder /wheels /tmp/sage-wheels
-RUN uv pip install /tmp/sage-wheels/sageattention-*.whl \
-    && rm -rf /tmp/sage-wheels \
-    && python -c "import importlib.metadata as m, torch, sageattention; print(torch.__version__, torch.version.cuda, m.version('sageattention'))"
+RUN set -eux; \
+    wheel=/tmp/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl; \
+    wget --tries=5 --timeout=60 -O "$wheel" "$SAGEATTENTION_WHEEL_URL"; \
+    echo "$SAGEATTENTION_WHEEL_SHA256  $wheel" | sha256sum -c -; \
+    uv pip install "$wheel"; \
+    rm -f "$wheel"; \
+    python -c "import importlib.metadata as m, torch, sageattention; print(torch.__version__, torch.version.cuda, m.version('sageattention'))"
 
 COPY requirements-handler.txt /opt/minimax-h3/requirements-handler.txt
 RUN uv pip install -r /opt/minimax-h3/requirements-handler.txt

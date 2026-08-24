@@ -11,7 +11,7 @@ Production RunPod Serverless worker generated from the supplied FL2V/I2V and R2V
 - 6-step Turbo sampler preset
 - The tested `Apache0ne/ComfyUI-fasterminimax` FirstBlockCache at `0.18`, warmup `1`, maximum consecutive reuse `1`
 - MiniMax H3 memory-efficient SageAttention patch
-- Compiled SageAttention 2.2.0 for Ampere, Ada, Hopper, datacenter Blackwell, and RTX 50-series
+- Checksum-pinned SageAttention 2.2.0 Linux wheel for RTX 50-series (`sm_120`), with native-attention fallback on other NVIDIA GPUs
 - A RunPod handler that returns MP4 files, not just images
 - Simple `fl2v` and `r2v` request schemas plus raw ComfyUI API-workflow passthrough
 
@@ -70,7 +70,6 @@ Use this variant when the endpoint may receive RTX 30/40/50, A-series, L-series,
 
 ```bash
 docker build --target final \
-  --build-arg CUDA_DEVEL_IMAGE=nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04 \
   --build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128 \
   --build-arg MODEL_PROFILE=universal \
   -t YOUR_DOCKERHUB/minimax-h3-runpod:universal .

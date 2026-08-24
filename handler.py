@@ -31,7 +31,7 @@ MAX_BASE64_BYTES = int(os.environ.get("MAX_RETURN_BASE64_MB", "6")) * 1024 * 102
 
 BLACKWELL_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 UNIVERSAL_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-SAGE_CAPABILITIES = {(8, 0), (8, 6), (8, 9), (9, 0), (12, 0)}
+SAGE_CAPABILITIES = {(12, 0)}
 
 TASKS = {
     "fl2v": {

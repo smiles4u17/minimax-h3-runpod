@@ -83,9 +83,11 @@ class WorkflowTests(unittest.TestCase):
         value = {"92": {"videos": [{"filename": "clip.mp4", "type": "output"}]}}
         self.assertEqual(handler._find_file_descriptors(value)[0]["filename"], "clip.mp4")
 
-    def test_auto_attention_falls_back_on_unsupported_gpu(self) -> None:
+    def test_auto_attention_uses_sage_only_on_sm120(self) -> None:
         with mock.patch.dict(handler.os.environ, {"ATTENTION_MODE": "auto"}):
+            self.assertEqual(handler._attention_mode("auto", (8, 9)), "native")
             self.assertEqual(handler._attention_mode("auto", (10, 0)), "native")
+            self.assertEqual(handler._attention_mode("auto", (12, 0)), "sage")
 
     def test_blackwell_only_encoder_rejected_on_older_gpu(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "MODEL_PROFILE=dual or universal"):
