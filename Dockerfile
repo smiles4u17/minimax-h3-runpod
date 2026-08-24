@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG WORKER_BASE=runpod/worker-comfyui:5.8.7-base
+ARG WORKER_BASE=runpod/worker-comfyui:5.8.6-base
 ARG CUDA_DEVEL_IMAGE=nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
 ARG TORCH_VERSION=2.11.0
 ARG TORCHVISION_VERSION=0.26.0
