@@ -221,7 +221,7 @@
   },
   "152": {
     "inputs": {
-      "lora_name": "H3\\minimax_h3_turbo_v4_step600_ema.safetensors",
+      "lora_name": "H3/minimax_h3_turbo_v4_step600_ema.safetensors",
       "strength": 1,
       "low_vram": false,
       "model": [

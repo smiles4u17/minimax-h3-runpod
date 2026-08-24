@@ -6,6 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -81,6 +82,14 @@ class WorkflowTests(unittest.TestCase):
     def test_finds_video_descriptors(self) -> None:
         value = {"92": {"videos": [{"filename": "clip.mp4", "type": "output"}]}}
         self.assertEqual(handler._find_file_descriptors(value)[0]["filename"], "clip.mp4")
+
+    def test_auto_attention_falls_back_on_unsupported_gpu(self) -> None:
+        with mock.patch.dict(handler.os.environ, {"ATTENTION_MODE": "auto"}):
+            self.assertEqual(handler._attention_mode("auto", (10, 0)), "native")
+
+    def test_blackwell_only_encoder_rejected_on_older_gpu(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "MODEL_PROFILE=dual or universal"):
+            handler._select_encoder((8, 9))
 
 
 if __name__ == "__main__":

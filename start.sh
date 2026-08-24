@@ -21,7 +21,7 @@ shutdown() {
 trap shutdown EXIT INT TERM
 
 for _ in $(seq 1 180); do
-  if curl --fail --silent "http://$COMFY_HOST:$COMFY_PORT/system_stats" >/dev/null; then
+  if wget -q -O /dev/null "http://$COMFY_HOST:$COMFY_PORT/system_stats"; then
     exec python -u /opt/minimax-h3/handler.py
   fi
   if ! kill -0 "$COMFY_PID" 2>/dev/null; then

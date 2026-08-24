@@ -31,8 +31,8 @@ image when desired.
 4. Populate the volume entirely in the cloud:
 
 ```bash
-cd minimax-h3-runpod
-MODEL_PROFILE=blackwell bash scripts/setup_runpod_volume.sh
+cd /workspace/minimax-h3-runpod
+VOLUME_ROOT=/workspace MODEL_PROFILE=blackwell bash scripts/setup_runpod_volume.sh
 ```
 
 5. Stop and delete the temporary Pod, preserving the network volume.

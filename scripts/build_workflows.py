@@ -35,6 +35,7 @@ def set_common(workflow: dict, cache_id: str, turbo_id: str = "152") -> None:
     workflow["125"]["inputs"]["sampler"] = ["154", 0]
     workflow["128"]["inputs"]["clip_name"] = BLACKWELL_ENCODER
     workflow[turbo_id]["inputs"]["model"] = ["127", 0]
+    workflow[turbo_id]["inputs"]["lora_name"] = "H3/minimax_h3_turbo_v4_step600_ema.safetensors"
     workflow[cache_id]["inputs"].update(
         threshold=0.18,
         warmup_steps=1,

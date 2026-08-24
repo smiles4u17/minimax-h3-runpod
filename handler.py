@@ -31,6 +31,7 @@ MAX_BASE64_BYTES = int(os.environ.get("MAX_RETURN_BASE64_MB", "6")) * 1024 * 102
 
 BLACKWELL_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 UNIVERSAL_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+SAGE_CAPABILITIES = {(8, 0), (8, 6), (8, 9), (9, 0), (12, 0)}
 
 TASKS = {
     "fl2v": {
@@ -79,12 +80,16 @@ def _select_encoder(capability: tuple[int, int] | None) -> str:
     forced = os.environ.get("TEXT_ENCODER_FILE")
     if forced:
         return forced
-    if capability and capability[0] >= 10 and _model_exists("text_encoders", BLACKWELL_ENCODER):
+    is_blackwell = bool(capability and capability[0] >= 10)
+    if is_blackwell and _model_exists("text_encoders", BLACKWELL_ENCODER):
         return BLACKWELL_ENCODER
     if _model_exists("text_encoders", UNIVERSAL_ENCODER):
         return UNIVERSAL_ENCODER
     if _model_exists("text_encoders", BLACKWELL_ENCODER):
-        return BLACKWELL_ENCODER
+        raise RuntimeError(
+            "Only the Blackwell NVFP4 text encoder is installed, but this GPU is not "
+            "Blackwell. Populate the volume with MODEL_PROFILE=dual or universal."
+        )
     raise RuntimeError("No MiniMax H3 text encoder is installed.")
 
 
@@ -102,12 +107,14 @@ def _attention_mode(requested: str, capability: tuple[int, int] | None) -> str:
     if configured not in {"auto", "sage", "native"}:
         raise InputError("attention must be auto, sage, or native")
     if configured == "sage":
+        if capability not in SAGE_CAPABILITIES:
+            raise RuntimeError(f"SageAttention is not compiled for CUDA capability {capability}.")
         if not _sage_available():
             raise RuntimeError("SageAttention was requested but is not importable.")
         return "sage"
     if configured == "native":
         return "native"
-    return "sage" if capability and capability[0] >= 8 and _sage_available() else "native"
+    return "sage" if capability in SAGE_CAPABILITIES and _sage_available() else "native"
 
 
 def _normalize_lora_name(name: str) -> str:

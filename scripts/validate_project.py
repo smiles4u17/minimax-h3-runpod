@@ -13,6 +13,12 @@ CUSTOM_ALLOWED = {
     "MiniMaxH3TurboLoRA",
     "MiniMaxH3TurboSampler",
 }
+REQUIRED_CUSTOM = {
+    "MiniMaxH3FirstBlockCache",
+    "MiniMaxH3MemoryEfficientSageAttentionPatch",
+    "MiniMaxH3TurboLoRA",
+    "MiniMaxH3TurboSampler",
+}
 
 
 def validate(path: Path) -> None:
@@ -24,6 +30,8 @@ def validate(path: Path) -> None:
     assert "SaveVideo" in classes
     assert workflow["124"]["inputs"]["steps"] == 6
     assert workflow["128"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    assert workflow["152"]["inputs"]["lora_name"] == "H3/minimax_h3_turbo_v4_step600_ema.safetensors"
+    assert REQUIRED_CUSTOM <= classes, f"{path.name}: missing required custom nodes"
     for node_id, node in workflow.items():
         for value in node.get("inputs", {}).values():
             if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
