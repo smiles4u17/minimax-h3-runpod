@@ -101,6 +101,51 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["119"]["inputs"]["vae_name"], "alternate_video_vae.safetensors")
         self.assertFalse(metadata["turbo_enabled"])
 
+    def test_10eros_multires_bypasses_turbo_lora_and_cache(self) -> None:
+        workflow, metadata = handler.build_preset({
+            "task": "r2v",
+            "prompt": "test prompt",
+            "references": [asset("one.png")],
+            "turbo_enabled": False,
+            "sampler": "res_multistep",
+            "scheduler": "simple",
+            "cache_enabled": False,
+            "steps": 6,
+        })
+        self.assertNotIn("152", workflow)
+        self.assertNotIn("154", workflow)
+        self.assertNotIn("210", workflow)
+        self.assertEqual(workflow["9150"]["inputs"]["sampler_name"], "res_multistep")
+        self.assertEqual(workflow["124"]["inputs"]["scheduler"], "simple")
+        self.assertEqual(workflow["124"]["inputs"]["model"], ["145", 0])
+        self.assertEqual(workflow["126"]["inputs"]["model"], ["145", 0])
+        self.assertEqual(metadata["sampler"], "res_multistep")
+        self.assertFalse(metadata["cache_enabled"])
+
+    def test_10eros_er_sde_is_selectable(self) -> None:
+        workflow, metadata = handler.build_preset({
+            "task": "fl2v",
+            "prompt": "test prompt",
+            "first_frame": asset("first.png"),
+            "turbo_enabled": False,
+            "sampler": "er_sde",
+            "scheduler": "simple",
+            "cache_enabled": False,
+            "steps": 6,
+        })
+        self.assertEqual(workflow["9150"]["inputs"]["sampler_name"], "er_sde")
+        self.assertEqual(metadata["scheduler"], "simple")
+
+    def test_dedicated_turbo_sampler_requires_turbo_lora(self) -> None:
+        with self.assertRaisesRegex(handler.InputError, "requires turbo_enabled=true"):
+            handler.build_preset({
+                "task": "fl2v",
+                "prompt": "test prompt",
+                "first_frame": asset("first.png"),
+                "turbo_enabled": False,
+                "sampler": "h3_turbo",
+            })
+
     def test_r2v_references_and_audio(self) -> None:
         workflow, metadata = handler.build_preset({
             "task": "r2v",

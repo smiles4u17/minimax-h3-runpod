@@ -32,6 +32,8 @@ MAX_BASE64_BYTES = int(os.environ.get("MAX_RETURN_BASE64_MB", "6")) * 1024 * 102
 BLACKWELL_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 UNIVERSAL_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 SAGE_CAPABILITIES = {(12, 0)}
+SAMPLERS = {"h3_turbo", "res_multistep", "er_sde", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "deis", "uni_pc"}
+SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
 
 TASKS = {
     "fl2v": {
@@ -182,9 +184,18 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     if not 0.2 <= megapixels <= 2.0:
         raise InputError("megapixels must be between 0.2 and 2.0")
     turbo_enabled = _payload_bool(payload.get("turbo_enabled"), default=True)
-    if turbo_enabled and not 4 <= steps <= 8:
+    sampler = str(payload.get("sampler") or ("h3_turbo" if turbo_enabled else "res_multistep")).lower()
+    scheduler = str(payload.get("scheduler") or ("simple" if turbo_enabled else "beta")).lower()
+    cache_enabled = _payload_bool(payload.get("cache_enabled"), default=True)
+    if sampler not in SAMPLERS:
+        raise InputError(f"Unsupported sampler: {sampler}")
+    if scheduler not in SCHEDULERS:
+        raise InputError(f"Unsupported scheduler: {scheduler}")
+    if sampler == "h3_turbo" and not turbo_enabled:
+        raise InputError("The dedicated H3 Turbo sampler requires turbo_enabled=true")
+    if (turbo_enabled or sampler == "h3_turbo") and not 4 <= steps <= 8:
         raise InputError("steps must be between 4 and 8 when Turbo is enabled")
-    if not turbo_enabled and not 4 <= steps <= 50:
+    if not turbo_enabled and sampler != "h3_turbo" and not 4 <= steps <= 50:
         raise InputError("steps must be between 4 and 50 when Turbo is disabled")
     if not 0 <= threshold <= 1:
         raise InputError("cache_threshold must be between 0 and 1")
@@ -194,7 +205,6 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     workflow["115"]["inputs"]["aspect_ratio"] = str(payload.get("aspect_ratio", "16:9 (Widescreen)"))
     workflow["124"]["inputs"]["steps"] = steps
     workflow["129"]["inputs"]["noise_seed"] = int(payload.get("seed", secrets.randbelow(2**63 - 1)))
-    workflow[spec["cache"]]["inputs"]["threshold"] = threshold
     default_model = workflow["127"]["inputs"]["unet_name"]
     default_video_vae = workflow["119"]["inputs"]["vae_name"]
     default_audio_vae = workflow["120"]["inputs"]["vae_name"]
@@ -213,27 +223,37 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         if not _model_exists("loras", turbo_name):
             raise InputError(f"Turbo LoRA is not installed in models/loras: {turbo_name}")
         workflow["152"]["inputs"].update(model=model, lora_name=turbo_name, strength=turbo_strength)
-        workflow["125"]["inputs"]["sampler"] = ["154", 0]
-        workflow["124"]["inputs"]["scheduler"] = "simple"
         model = ["152", 0]
     else:
+        workflow.pop("152", None)
+
+    if sampler == "h3_turbo":
+        workflow["125"]["inputs"]["sampler"] = ["154", 0]
+    else:
         workflow["9150"] = {
-            "inputs": {"sampler_name": "res_multistep"},
+            "inputs": {"sampler_name": sampler},
             "class_type": "KSamplerSelect",
-            "_meta": {"title": "Native sampler (Turbo disabled)"},
+            "_meta": {"title": f"API sampler: {sampler}"},
         }
         workflow["125"]["inputs"]["sampler"] = ["9150", 0]
-        workflow["124"]["inputs"]["scheduler"] = "beta"
-        workflow.pop("152", None)
         workflow.pop("154", None)
+    workflow["124"]["inputs"]["scheduler"] = scheduler
 
     attention = _attention_mode(str(payload.get("attention", "auto")), capability)
     if attention == "native":
-        workflow[spec["cache"]]["inputs"]["model"] = model
         workflow.pop("145", None)
     else:
         workflow["145"]["inputs"]["model"] = model
-        workflow[spec["cache"]]["inputs"]["model"] = ["145", 0]
+        model = ["145", 0]
+
+    if cache_enabled:
+        workflow[spec["cache"]]["inputs"]["threshold"] = threshold
+        workflow[spec["cache"]]["inputs"]["model"] = model
+        model = [spec["cache"], 0]
+    else:
+        workflow.pop(spec["cache"], None)
+    workflow["124"]["inputs"]["model"] = model
+    workflow["126"]["inputs"]["model"] = model
 
     prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(payload.get("filename_prefix", "MiniMax_H3"))).strip("._")
     workflow[spec["save"]]["inputs"]["filename_prefix"] = f"video/{prefix or 'MiniMax_H3'}"
@@ -246,6 +266,10 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "video_vae": workflow["119"]["inputs"]["vae_name"],
         "audio_vae": workflow["120"]["inputs"]["vae_name"],
         "turbo_enabled": turbo_enabled,
+        "sampler": sampler,
+        "scheduler": scheduler,
+        "cache_enabled": cache_enabled,
+        "cache_threshold": threshold if cache_enabled else None,
         "seed": workflow["129"]["inputs"]["noise_seed"],
     }
 
