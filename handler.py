@@ -124,7 +124,31 @@ def _normalize_lora_name(name: str) -> str:
     return normalized
 
 
-def _apply_loras(workflow: dict[str, Any], loras: list[dict[str, Any]]) -> None:
+def _payload_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise InputError(f"Invalid boolean value: {value!r}")
+
+
+def _model_name(payload: dict[str, Any], key: str, folder: str, fallback: str) -> str:
+    name = str(payload.get(key) or fallback).replace("\\", "/").strip("/")
+    if not name or ".." in Path(name).parts or Path(name).is_absolute():
+        raise InputError(f"Invalid {key} model name: {name!r}")
+    if not _model_exists(folder, name):
+        raise InputError(f"{key} model is not installed in models/{folder}: {name}")
+    return name
+
+
+def _apply_loras(workflow: dict[str, Any], loras: list[dict[str, Any]]) -> list[Any]:
     previous: list[Any] = ["127", 0]
     for index, item in enumerate(loras):
         if not isinstance(item, dict) or "name" not in item:
@@ -140,7 +164,7 @@ def _apply_loras(workflow: dict[str, Any], loras: list[dict[str, Any]]) -> None:
             "_meta": {"title": f"API LoRA {index + 1}"},
         }
         previous = [node_id, 0]
-    workflow["152"]["inputs"]["model"] = previous
+    return previous
 
 
 def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -157,8 +181,11 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         raise InputError("duration must be between 1 and 15 seconds")
     if not 0.2 <= megapixels <= 2.0:
         raise InputError("megapixels must be between 0.2 and 2.0")
-    if not 4 <= steps <= 8:
-        raise InputError("steps must be between 4 and 8 for the Turbo v4 LoRA")
+    turbo_enabled = _payload_bool(payload.get("turbo_enabled"), default=True)
+    if turbo_enabled and not 4 <= steps <= 8:
+        raise InputError("steps must be between 4 and 8 when Turbo is enabled")
+    if not turbo_enabled and not 4 <= steps <= 50:
+        raise InputError("steps must be between 4 and 50 when Turbo is disabled")
     if not 0 <= threshold <= 1:
         raise InputError("cache_threshold must be between 0 and 1")
 
@@ -168,15 +195,46 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     workflow["124"]["inputs"]["steps"] = steps
     workflow["129"]["inputs"]["noise_seed"] = int(payload.get("seed", secrets.randbelow(2**63 - 1)))
     workflow[spec["cache"]]["inputs"]["threshold"] = threshold
-    workflow["128"]["inputs"]["clip_name"] = _select_encoder(capability)
+    default_model = workflow["127"]["inputs"]["unet_name"]
+    default_video_vae = workflow["119"]["inputs"]["vae_name"]
+    default_audio_vae = workflow["120"]["inputs"]["vae_name"]
+    selected_encoder = str(payload.get("clip") or "").strip() or _select_encoder(capability)
+    workflow["127"]["inputs"]["unet_name"] = _model_name(payload, "model", "diffusion_models", default_model)
+    workflow["119"]["inputs"]["vae_name"] = _model_name(payload, "video_vae", "vae", default_video_vae)
+    workflow["120"]["inputs"]["vae_name"] = _model_name(payload, "audio_vae", "vae", default_audio_vae)
+    workflow["128"]["inputs"]["clip_name"] = _model_name({"clip": selected_encoder}, "clip", "text_encoders", selected_encoder)
+
+    model: list[Any] = _apply_loras(workflow, list(payload.get("loras", [])))
+    if turbo_enabled:
+        turbo_name = _normalize_lora_name(str(payload.get("turbo_lora") or "H3/minimax_h3_turbo_v4_step600_ema.safetensors"))
+        turbo_strength = float(payload.get("turbo_strength", 1.0))
+        if not 0 <= turbo_strength <= 2:
+            raise InputError("turbo_strength must be between 0 and 2")
+        if not _model_exists("loras", turbo_name):
+            raise InputError(f"Turbo LoRA is not installed in models/loras: {turbo_name}")
+        workflow["152"]["inputs"].update(model=model, lora_name=turbo_name, strength=turbo_strength)
+        workflow["125"]["inputs"]["sampler"] = ["154", 0]
+        workflow["124"]["inputs"]["scheduler"] = "simple"
+        model = ["152", 0]
+    else:
+        workflow["9150"] = {
+            "inputs": {"sampler_name": "res_multistep"},
+            "class_type": "KSamplerSelect",
+            "_meta": {"title": "Native sampler (Turbo disabled)"},
+        }
+        workflow["125"]["inputs"]["sampler"] = ["9150", 0]
+        workflow["124"]["inputs"]["scheduler"] = "beta"
+        workflow.pop("152", None)
+        workflow.pop("154", None)
 
     attention = _attention_mode(str(payload.get("attention", "auto")), capability)
     if attention == "native":
-        upstream = copy.deepcopy(workflow["145"]["inputs"]["model"])
-        workflow[spec["cache"]]["inputs"]["model"] = upstream
+        workflow[spec["cache"]]["inputs"]["model"] = model
         workflow.pop("145", None)
+    else:
+        workflow["145"]["inputs"]["model"] = model
+        workflow[spec["cache"]]["inputs"]["model"] = ["145", 0]
 
-    _apply_loras(workflow, list(payload.get("loras", [])))
     prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(payload.get("filename_prefix", "MiniMax_H3"))).strip("._")
     workflow[spec["save"]]["inputs"]["filename_prefix"] = f"video/{prefix or 'MiniMax_H3'}"
     return {
@@ -184,6 +242,10 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "compute_capability": capability,
         "attention": attention,
         "text_encoder": workflow["128"]["inputs"]["clip_name"],
+        "model": workflow["127"]["inputs"]["unet_name"],
+        "video_vae": workflow["119"]["inputs"]["vae_name"],
+        "audio_vae": workflow["120"]["inputs"]["vae_name"],
+        "turbo_enabled": turbo_enabled,
         "seed": workflow["129"]["inputs"]["noise_seed"],
     }
 

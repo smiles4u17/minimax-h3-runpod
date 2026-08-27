@@ -43,6 +43,23 @@ class WorkflowTests(unittest.TestCase):
         encoder = root / "models" / "text_encoders" / handler.BLACKWELL_ENCODER
         encoder.parent.mkdir(parents=True)
         encoder.touch()
+        for folder, names in {
+            "diffusion_models": [
+                "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+                "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+                "alternate_h3.safetensors",
+            ],
+            "vae": [
+                "minimax_h3_video_vae_fp16.safetensors",
+                "minimax_h3_audio_vae_fp32.safetensors",
+                "alternate_video_vae.safetensors",
+            ],
+            "loras": ["H3/minimax_h3_turbo_v4_step600_ema.safetensors"],
+        }.items():
+            for name in names:
+                path = root / "models" / folder / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
         handler._gpu_info = lambda: ("RTX 5090", (12, 0))
         handler._sage_available = lambda: True
 
@@ -64,6 +81,25 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["182"]["inputs"]["last_frame"], ["902", 0])
         self.assertEqual(workflow["124"]["inputs"]["steps"], 6)
         self.assertEqual(metadata["attention"], "native")
+
+    def test_turbo_disabled_uses_native_sampler_and_selected_models(self) -> None:
+        workflow, metadata = handler.build_preset({
+            "task": "fl2v",
+            "prompt": "test prompt",
+            "first_frame": asset("first.png"),
+            "turbo_enabled": False,
+            "steps": 20,
+            "model": "alternate_h3.safetensors",
+            "video_vae": "alternate_video_vae.safetensors",
+        })
+        self.assertNotIn("152", workflow)
+        self.assertNotIn("154", workflow)
+        self.assertEqual(workflow["125"]["inputs"]["sampler"], ["9150", 0])
+        self.assertEqual(workflow["124"]["inputs"]["scheduler"], "beta")
+        self.assertEqual(workflow["124"]["inputs"]["steps"], 20)
+        self.assertEqual(workflow["127"]["inputs"]["unet_name"], "alternate_h3.safetensors")
+        self.assertEqual(workflow["119"]["inputs"]["vae_name"], "alternate_video_vae.safetensors")
+        self.assertFalse(metadata["turbo_enabled"])
 
     def test_r2v_references_and_audio(self) -> None:
         workflow, metadata = handler.build_preset({
