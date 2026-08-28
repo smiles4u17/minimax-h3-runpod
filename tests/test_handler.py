@@ -146,6 +146,17 @@ class WorkflowTests(unittest.TestCase):
                 "sampler": "h3_turbo",
             })
 
+    def test_negative_seed_is_randomized_to_valid_comfy_seed(self) -> None:
+        with mock.patch.object(handler.secrets, "randbelow", return_value=424242):
+            workflow, metadata = handler.build_preset({
+                "task": "fl2v",
+                "prompt": "test prompt",
+                "first_frame": asset("first.png"),
+                "seed": -1,
+            })
+        self.assertEqual(workflow["129"]["inputs"]["noise_seed"], 424242)
+        self.assertEqual(metadata["seed"], 424242)
+
     def test_r2v_references_and_audio(self) -> None:
         workflow, metadata = handler.build_preset({
             "task": "r2v",

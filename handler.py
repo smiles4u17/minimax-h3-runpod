@@ -204,7 +204,10 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     workflow["115"]["inputs"]["megapixels"] = megapixels
     workflow["115"]["inputs"]["aspect_ratio"] = str(payload.get("aspect_ratio", "16:9 (Widescreen)"))
     workflow["124"]["inputs"]["steps"] = steps
-    workflow["129"]["inputs"]["noise_seed"] = int(payload.get("seed", secrets.randbelow(2**63 - 1)))
+    seed = int(payload.get("seed", secrets.randbelow(2**63 - 1)))
+    if seed < 0:
+        seed = secrets.randbelow(2**53)
+    workflow["129"]["inputs"]["noise_seed"] = seed
     default_model = workflow["127"]["inputs"]["unet_name"]
     default_video_vae = workflow["119"]["inputs"]["vae_name"]
     default_audio_vae = workflow["120"]["inputs"]["vae_name"]
