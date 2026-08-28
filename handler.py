@@ -8,8 +8,12 @@ import mimetypes
 import os
 import re
 import secrets
+import shlex
 import shutil
 import socket
+import subprocess
+import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -25,6 +29,9 @@ INPUT_DIR = COMFY_ROOT / "input"
 OUTPUT_DIR = COMFY_ROOT / "output"
 TEMPLATE_DIR = Path(os.environ.get("WORKFLOW_DIR", "/opt/minimax-h3/workflows"))
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
+COMFY_HOST = os.environ.get("COMFY_HOST", "127.0.0.1")
+COMFY_PORT = int(os.environ.get("COMFY_PORT", "8188"))
+COMFY_START_TIMEOUT = int(os.environ.get("COMFY_START_TIMEOUT_SECONDS", "180"))
 JOB_TIMEOUT = int(os.environ.get("JOB_TIMEOUT_SECONDS", "3600"))
 MAX_ASSET_BYTES = int(os.environ.get("MAX_ASSET_MB", "250")) * 1024 * 1024
 MAX_BASE64_BYTES = int(os.environ.get("MAX_RETURN_BASE64_MB", "6")) * 1024 * 1024
@@ -34,6 +41,9 @@ UNIVERSAL_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 SAGE_CAPABILITIES = {(12, 0)}
 SAMPLERS = {"h3_turbo", "res_multistep", "er_sde", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "deis", "uni_pc"}
 SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
+
+_COMFY_PROCESS: subprocess.Popen[Any] | None = None
+_COMFY_LOCK = threading.Lock()
 
 TASKS = {
     "fl2v": {
@@ -57,6 +67,48 @@ class InputError(ValueError):
 
 def _load_template(name: str) -> dict[str, Any]:
     return json.loads((TEMPLATE_DIR / name).read_text(encoding="utf-8"))
+
+
+def _comfy_ready() -> bool:
+    try:
+        response = requests.get(f"{COMFY_URL}/system_stats", timeout=5)
+        return response.status_code < 400
+    except requests.RequestException:
+        return False
+
+
+def _ensure_comfy_ready(timeout: int = COMFY_START_TIMEOUT) -> None:
+    """Recover ComfyUI if FlashBoot or a process crash left only the handler alive."""
+    global _COMFY_PROCESS
+    if _comfy_ready():
+        return
+    with _COMFY_LOCK:
+        if _comfy_ready():
+            return
+        if _COMFY_PROCESS is None or _COMFY_PROCESS.poll() is not None:
+            command = [
+                sys.executable,
+                str(COMFY_ROOT / "main.py"),
+                "--listen",
+                COMFY_HOST,
+                "--port",
+                str(COMFY_PORT),
+                "--extra-model-paths-config",
+                "/opt/minimax-h3/extra_model_paths.yaml",
+                *shlex.split(os.environ.get("COMFY_ARGS", "")),
+            ]
+            print("ComfyUI is unavailable; starting a replacement process.", flush=True)
+            _COMFY_PROCESS = subprocess.Popen(command, cwd=str(COMFY_ROOT))
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if _comfy_ready():
+                print("ComfyUI replacement is ready.", flush=True)
+                return
+            if _COMFY_PROCESS.poll() is not None:
+                raise RuntimeError(f"ComfyUI restart exited with code {_COMFY_PROCESS.returncode}.")
+            time.sleep(1)
+        raise RuntimeError(f"ComfyUI did not become ready within {timeout} seconds.")
 
 
 def _gpu_info() -> tuple[str, tuple[int, int] | None]:
@@ -410,11 +462,12 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
 
 
 def _submit(workflow: dict[str, Any]) -> str:
-    response = requests.post(
-        f"{COMFY_URL}/prompt",
-        json={"prompt": workflow, "client_id": uuid.uuid4().hex},
-        timeout=60,
-    )
+    request_body = {"prompt": workflow, "client_id": uuid.uuid4().hex}
+    try:
+        response = requests.post(f"{COMFY_URL}/prompt", json=request_body, timeout=60)
+    except requests.ConnectionError:
+        _ensure_comfy_ready()
+        response = requests.post(f"{COMFY_URL}/prompt", json=request_body, timeout=60)
     if response.status_code >= 400:
         raise RuntimeError(f"ComfyUI rejected the workflow: {response.text[:4000]}")
     body = response.json()
@@ -552,6 +605,7 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"error": "input must be an object"}
     try:
+        _ensure_comfy_ready()
         if "workflow" in payload:
             workflow = payload["workflow"]
             if not isinstance(workflow, dict):

@@ -31,6 +31,17 @@ def asset(name: str) -> dict[str, str]:
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_comfy_readiness_starts_replacement_when_server_is_missing(self) -> None:
+        process = mock.Mock()
+        process.poll.return_value = None
+        with (
+            mock.patch.object(handler, "_comfy_ready", side_effect=[False, False, True]),
+            mock.patch.object(handler.subprocess, "Popen", return_value=process) as popen,
+        ):
+            handler._COMFY_PROCESS = None
+            handler._ensure_comfy_ready(timeout=1)
+        popen.assert_called_once()
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
