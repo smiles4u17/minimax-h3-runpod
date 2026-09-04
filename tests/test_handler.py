@@ -31,6 +31,28 @@ def asset(name: str) -> dict[str, str]:
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_flat_volume_outputs_are_unique_and_have_no_job_subfolder(self):
+        root = Path(self.temp.name)
+        source = root / "clip.mp4"
+        source.write_bytes(b"test-video")
+        with (
+            mock.patch.dict(handler.os.environ, {"OUTPUT_VOLUME_DIR": str(root / "legacy")}),
+            mock.patch.object(handler, "FLAT_OUTPUT_DIR", root / "outputs"),
+            mock.patch.object(handler, "_s3_config", return_value=None),
+        ):
+            first = handler._deliver(source, {"output_layout": "flat_outputs"}, "job-1", 0)
+            second = handler._deliver(source, {"output_layout": "flat_outputs"}, "job-1", 0)
+        self.assertNotEqual(first["data"], second["data"])
+        for result in (first, second):
+            self.assertEqual(result["type"], "volume_path")
+            self.assertEqual(Path(result["data"]).parent, root / "outputs")
+            self.assertEqual(Path(result["data"]).read_bytes(), b"test-video")
+
+    def test_attention_request_overrides_image_auto_default(self):
+        with mock.patch.dict(handler.os.environ, {"ATTENTION_MODE": "auto"}), mock.patch.object(handler, "_sage_available", return_value=True):
+            self.assertEqual(handler._attention_mode("native", (12, 0)), "native")
+            self.assertEqual(handler._attention_mode("sage", (12, 0)), "sage")
+
     def test_comfy_readiness_starts_replacement_when_server_is_missing(self) -> None:
         process = mock.Mock()
         process.poll.return_value = None
@@ -84,6 +106,7 @@ class WorkflowTests(unittest.TestCase):
             "first_frame": asset("first.png"),
             "last_frame": asset("last.png"),
             "attention": "native",
+            "cache_enabled": True,
             "loras": [{"name": "H3/test.safetensors", "strength": 0.75}],
         })
         self.assertNotIn("145", workflow)
@@ -111,6 +134,45 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["127"]["inputs"]["unet_name"], "alternate_h3.safetensors")
         self.assertEqual(workflow["119"]["inputs"]["vae_name"], "alternate_video_vae.safetensors")
         self.assertFalse(metadata["turbo_enabled"])
+        self.assertFalse(metadata["cache_enabled"])
+        self.assertEqual(metadata["attention"], "sage")
+
+    def test_default_5090_path_uses_sage_without_cache(self) -> None:
+        workflow, metadata = handler.build_preset({
+            "task": "r2v",
+            "prompt": "test prompt",
+            "references": [asset("one.png")],
+        })
+        self.assertIn("145", workflow)
+        self.assertNotIn("210", workflow)
+        self.assertEqual(workflow["145"]["inputs"]["model"], ["152", 0])
+        self.assertEqual(workflow["124"]["inputs"]["model"], ["145", 0])
+        self.assertEqual(metadata["attention"], "sage")
+        self.assertFalse(metadata["cache_enabled"])
+
+    def test_metadata_records_exact_workflow_loras(self) -> None:
+        lora_root = handler.COMFY_ROOT / "models" / "loras" / "H3"
+        lora_root.mkdir(parents=True, exist_ok=True)
+        (lora_root / "first.safetensors").touch()
+        (lora_root / "second.safetensors").touch()
+        workflow, metadata = handler.build_preset({
+            "task": "r2v",
+            "prompt": "test prompt",
+            "references": [asset("one.png")],
+            "turbo_enabled": False,
+            "loras": [
+                {"name": "H3/first.safetensors", "strength": 0.7},
+                {"name": "H3/second.safetensors", "strength": 1.0},
+            ],
+        })
+        self.assertEqual(workflow["9100"]["inputs"]["model"], ["127", 0])
+        self.assertEqual(workflow["9101"]["inputs"]["model"], ["9100", 0])
+        self.assertEqual(workflow["145"]["inputs"]["model"], ["9101", 0])
+        self.assertEqual(workflow["124"]["inputs"]["model"], ["145", 0])
+        self.assertEqual(metadata["loras"], [
+            {"name": "H3/first.safetensors", "strength": 0.7},
+            {"name": "H3/second.safetensors", "strength": 1.0},
+        ])
 
     def test_10eros_multires_bypasses_turbo_lora_and_cache(self) -> None:
         workflow, metadata = handler.build_preset({
@@ -128,9 +190,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("210", workflow)
         self.assertEqual(workflow["9150"]["inputs"]["sampler_name"], "res_multistep")
         self.assertEqual(workflow["124"]["inputs"]["scheduler"], "simple")
+        self.assertIn("145", workflow)
+        self.assertEqual(workflow["145"]["inputs"]["model"], ["127", 0])
         self.assertEqual(workflow["124"]["inputs"]["model"], ["145", 0])
         self.assertEqual(workflow["126"]["inputs"]["model"], ["145", 0])
         self.assertEqual(metadata["sampler"], "res_multistep")
+        self.assertEqual(metadata["attention"], "sage")
         self.assertFalse(metadata["cache_enabled"])
 
     def test_10eros_er_sde_is_selectable(self) -> None:

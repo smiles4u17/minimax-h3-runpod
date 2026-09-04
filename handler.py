@@ -27,6 +27,7 @@ import runpod
 COMFY_ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
 INPUT_DIR = COMFY_ROOT / "input"
 OUTPUT_DIR = COMFY_ROOT / "output"
+FLAT_OUTPUT_DIR = Path("/runpod-volume/outputs")
 TEMPLATE_DIR = Path(os.environ.get("WORKFLOW_DIR", "/opt/minimax-h3/workflows"))
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
 COMFY_HOST = os.environ.get("COMFY_HOST", "127.0.0.1")
@@ -157,7 +158,7 @@ def _sage_available() -> bool:
 
 
 def _attention_mode(requested: str, capability: tuple[int, int] | None) -> str:
-    configured = os.environ.get("ATTENTION_MODE", requested or "auto").lower()
+    configured = (requested or os.environ.get("ATTENTION_MODE", "auto")).lower()
     if configured not in {"auto", "sage", "native"}:
         raise InputError("attention must be auto, sage, or native")
     if configured == "sage":
@@ -238,7 +239,7 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     turbo_enabled = _payload_bool(payload.get("turbo_enabled"), default=True)
     sampler = str(payload.get("sampler") or ("h3_turbo" if turbo_enabled else "res_multistep")).lower()
     scheduler = str(payload.get("scheduler") or ("simple" if turbo_enabled else "beta")).lower()
-    cache_enabled = _payload_bool(payload.get("cache_enabled"), default=True)
+    cache_enabled = _payload_bool(payload.get("cache_enabled"), default=False)
     if sampler not in SAMPLERS:
         raise InputError(f"Unsupported sampler: {sampler}")
     if scheduler not in SCHEDULERS:
@@ -294,7 +295,7 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         workflow.pop("154", None)
     workflow["124"]["inputs"]["scheduler"] = scheduler
 
-    attention = _attention_mode(str(payload.get("attention", "auto")), capability)
+    attention = _attention_mode(str(payload.get("attention") or ""), capability)
     if attention == "native":
         workflow.pop("145", None)
     else:
@@ -325,6 +326,10 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "scheduler": scheduler,
         "cache_enabled": cache_enabled,
         "cache_threshold": threshold if cache_enabled else None,
+        "loras": [
+            {"name": _normalize_lora_name(str(item["name"])), "strength": float(item.get("strength", 1.0))}
+            for item in list(payload.get("loras", []))
+        ],
         "seed": workflow["129"]["inputs"]["noise_seed"],
     }
 
@@ -579,7 +584,7 @@ def _deliver(path: Path, payload: dict[str, Any], job_id: str, index: int) -> di
         return {"filename": path.name, "type": "presigned_upload", "size": path.stat().st_size}
     if _s3_config():
         return _upload_s3(path, job_id)
-    if path.stat().st_size <= MAX_BASE64_BYTES:
+    if path.stat().st_size <= MAX_BASE64_BYTES and not (payload.get("output_layout") == "flat_outputs" and os.environ.get("OUTPUT_VOLUME_DIR")):
         return {
             "filename": path.name,
             "type": "base64",
@@ -589,11 +594,14 @@ def _deliver(path: Path, payload: dict[str, Any], job_id: str, index: int) -> di
         }
     volume_dir = os.environ.get("OUTPUT_VOLUME_DIR")
     if volume_dir:
-        target_dir = Path(volume_dir) / job_id
+        flat = payload.get("output_layout") == "flat_outputs"
+        target_dir = FLAT_OUTPUT_DIR if flat else Path(volume_dir) / job_id
         target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / path.name
+        # UUID suffix also prevents collisions if the same job is retried.
+        filename = f"{path.stem}_{uuid.uuid4().hex}{path.suffix}" if flat else path.name
+        target = target_dir / filename
         shutil.copy2(path, target)
-        return {"filename": path.name, "type": "volume_path", "data": str(target), "size": path.stat().st_size}
+        return {"filename": filename, "type": "volume_path", "data": str(target), "size": path.stat().st_size}
     raise RuntimeError(
         f"Output {path.name} is too large for base64. Configure S3, OUTPUT_VOLUME_DIR, "
         "or provide output_upload_urls."

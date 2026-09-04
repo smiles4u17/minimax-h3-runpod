@@ -89,6 +89,21 @@ To put both text encoders in one image and automatically select by compute capab
 
 ## Output configuration
 
+RunPod Media Console sends `output_layout: "flat_outputs"`. With
+`OUTPUT_VOLUME_DIR` configured and S3 environment delivery disabled, this writes
+MP4s directly to `/runpod-volume/outputs/`, with UUID-suffixed filenames to avoid
+collisions, including worker retries. Small files also use the volume in this
+mode. The returned `volume_path` is authoritative for downloading the exact S3
+key. Legacy requests retain their job-scoped layout; existing files are untouched.
+
+RunPod's network-volume S3 API does **not** support presigned URLs. Use mounted
+volume delivery for it, not `output_upload_urls`. That option is for storage
+providers supporting signed PUT requests.
+
+Cache defaults to off. Explicit request attention overrides `ATTENTION_MODE`;
+`auto` continues to select Sage on supported hardware. Workflow LoRAs are
+preserved and their effective names and weights are included in result metadata.
+
 MP4 results often exceed RunPod's response-size limit. The worker chooses output delivery in this order:
 
 1. Request field `output_upload_urls`: presigned HTTPS PUT URLs, one per output.
