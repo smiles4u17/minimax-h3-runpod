@@ -263,6 +263,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["136"]["inputs"]["ref_video_audios.ref_video_audio_0"], ["8201", 1])
         self.assertEqual(workflow["136"]["inputs"]["ref_audios.ref_audio_0"], ["8501", 0])
         self.assertEqual(workflow["136"]["inputs"]["ref_audios.ref_audio_1"], ["8503", 0])
+        self.assertEqual(workflow["8501"]["inputs"]["start_index"], 0.0)
+        self.assertNotIn("start_time", workflow["8501"]["inputs"])
         self.assertEqual(workflow["130"]["inputs"]["audio"], ["8501", 0])
         self.assertEqual(metadata["task"], "r2v")
 

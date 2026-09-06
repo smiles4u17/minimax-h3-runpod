@@ -470,7 +470,7 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
             "_meta": {"title": f"REFERENCE AUDIO {index + 1}"},
         }
         workflow[trim_id] = {
-            "inputs": {"start_time": 0.0, "duration": ["132", 0], "audio": [load_id, 0]},
+            "inputs": {"start_index": 0.0, "duration": ["132", 0], "audio": [load_id, 0]},
             "class_type": "TrimAudioDuration",
             "_meta": {"title": f"Trim Reference Audio {index + 1}"},
         }
