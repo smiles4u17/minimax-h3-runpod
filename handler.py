@@ -422,9 +422,18 @@ def _patch_fl2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
 
 
 def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
-    references = payload.get("references")
-    if not isinstance(references, list) or not 1 <= len(references) <= 9:
-        raise InputError("references must contain 1 to 9 images")
+    references = payload.get("references") or []
+    videos = payload.get("reference_videos") or []
+    audios = payload.get("reference_audios") or ([] if not payload.get("audio") else [payload["audio"]])
+    video_audio = payload.get("reference_video_audio") or []
+    if not isinstance(references, list) or len(references) > 9:
+        raise InputError("references must contain up to 9 images")
+    if not isinstance(videos, list) or len(videos) > 3:
+        raise InputError("reference_videos must contain up to 3 videos")
+    if not isinstance(audios, list) or len(audios) > 3:
+        raise InputError("reference_audios must contain up to 3 audio clips")
+    if not references and not videos and not audios:
+        raise InputError("r2v requires at least one image, video, or audio reference")
     for index, asset in enumerate(references):
         node_id = str(8000 + index)
         workflow[node_id] = {
@@ -434,21 +443,43 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
         }
         workflow["136"]["inputs"][f"ref_images.ref_image_{index}"] = [node_id, 0]
 
-    audio = payload.get("audio")
-    if audio:
-        workflow["8500"] = {
-            "inputs": {"audio": _materialize_asset(audio, "reference_audio.wav")},
+    for index, asset in enumerate(videos):
+        load_id = str(8200 + index * 2)
+        parts_id = str(8201 + index * 2)
+        workflow[load_id] = {
+            "inputs": {"file": _materialize_asset(asset, f"reference_video_{index + 1}.mp4")},
+            "class_type": "LoadVideo",
+            "_meta": {"title": f"REFERENCE VIDEO {index + 1}"},
+        }
+        workflow[parts_id] = {
+            "inputs": {"video": [load_id, 0]},
+            "class_type": "GetVideoComponents",
+            "_meta": {"title": f"REFERENCE VIDEO {index + 1} COMPONENTS"},
+        }
+        workflow["136"]["inputs"][f"ref_videos.ref_video_{index}"] = [parts_id, 0]
+        if index >= len(video_audio) or bool(video_audio[index]):
+            workflow["136"]["inputs"][f"ref_video_audios.ref_video_audio_{index}"] = [parts_id, 1]
+
+    first_output_audio: list[Any] | None = None
+    for index, asset in enumerate(audios):
+        load_id = str(8500 + index * 2)
+        trim_id = str(8501 + index * 2)
+        workflow[load_id] = {
+            "inputs": {"audio": _materialize_asset(asset, f"reference_audio_{index + 1}.wav")},
             "class_type": "LoadAudio",
-            "_meta": {"title": "REFERENCE AUDIO"},
+            "_meta": {"title": f"REFERENCE AUDIO {index + 1}"},
         }
-        workflow["8501"] = {
-            "inputs": {"start_time": 0.0, "duration": ["132", 0], "audio": ["8500", 0]},
+        workflow[trim_id] = {
+            "inputs": {"start_time": 0.0, "duration": ["132", 0], "audio": [load_id, 0]},
             "class_type": "TrimAudioDuration",
-            "_meta": {"title": "Trim Reference Audio"},
+            "_meta": {"title": f"Trim Reference Audio {index + 1}"},
         }
-        workflow["136"]["inputs"]["ref_audios.ref_audio_0"] = ["8501", 0]
-        if bool(payload.get("use_reference_audio_as_output", False)):
-            workflow["130"]["inputs"]["audio"] = ["8501", 0]
+        reference = [trim_id, 0]
+        workflow["136"]["inputs"][f"ref_audios.ref_audio_{index}"] = reference
+        if first_output_audio is None:
+            first_output_audio = reference
+    if first_output_audio and bool(payload.get("use_reference_audio_as_output", False)):
+        workflow["130"]["inputs"]["audio"] = first_output_audio
 
 
 def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

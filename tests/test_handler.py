@@ -247,6 +247,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["130"]["inputs"]["audio"], ["8501", 0])
         self.assertEqual(metadata["task"], "r2v")
 
+    def test_r2v_accepts_video_embedded_audio_and_multiple_standalone_audio(self) -> None:
+        workflow, metadata = handler.build_preset({
+            "task": "r2v",
+            "prompt": "Use <Video 1>, <Audio 1>, and <Audio 2>.",
+            "references": [],
+            "reference_videos": [asset("motion.mp4")],
+            "reference_video_audio": [True],
+            "reference_audios": [asset("voice.wav"), asset("music.wav")],
+            "use_reference_audio_as_output": True,
+        })
+        self.assertEqual(workflow["8200"]["class_type"], "LoadVideo")
+        self.assertEqual(workflow["8201"]["class_type"], "GetVideoComponents")
+        self.assertEqual(workflow["136"]["inputs"]["ref_videos.ref_video_0"], ["8201", 0])
+        self.assertEqual(workflow["136"]["inputs"]["ref_video_audios.ref_video_audio_0"], ["8201", 1])
+        self.assertEqual(workflow["136"]["inputs"]["ref_audios.ref_audio_0"], ["8501", 0])
+        self.assertEqual(workflow["136"]["inputs"]["ref_audios.ref_audio_1"], ["8503", 0])
+        self.assertEqual(workflow["130"]["inputs"]["audio"], ["8501", 0])
+        self.assertEqual(metadata["task"], "r2v")
+
+    def test_r2v_accepts_audio_only_reference(self) -> None:
+        workflow, _ = handler.build_preset({
+            "task": "r2v",
+            "prompt": "Use <Audio 1> as the voice.",
+            "references": [],
+            "reference_audios": [asset("voice.wav")],
+        })
+        self.assertEqual(workflow["136"]["inputs"]["ref_audios.ref_audio_0"], ["8501", 0])
+
     def test_finds_video_descriptors(self) -> None:
         value = {"92": {"videos": [{"filename": "clip.mp4", "type": "output"}]}}
         self.assertEqual(handler._find_file_descriptors(value)[0]["filename"], "clip.mp4")
