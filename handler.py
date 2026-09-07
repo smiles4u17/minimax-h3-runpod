@@ -421,17 +421,25 @@ def _patch_fl2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
         workflow["182"]["inputs"]["last_frame"] = ["902", 0]
 
 
+def _output_frame_count(payload: dict[str, Any]) -> int:
+    raw = max(5, round(float(payload.get("duration", 7)) * 24))
+    return raw + (5 - (raw % 17)) % 17
+
+
 def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
     references = payload.get("references") or []
     videos = payload.get("reference_videos") or []
     audios = payload.get("reference_audios") or ([] if not payload.get("audio") else [payload["audio"]])
     video_audio = payload.get("reference_video_audio") or []
+    video_settings = payload.get("reference_video_settings") or []
     if not isinstance(references, list) or len(references) > 9:
         raise InputError("references must contain up to 9 images")
     if not isinstance(videos, list) or len(videos) > 3:
         raise InputError("reference_videos must contain up to 3 videos")
     if not isinstance(audios, list) or len(audios) > 3:
         raise InputError("reference_audios must contain up to 3 audio clips")
+    if not isinstance(video_settings, list):
+        raise InputError("reference_video_settings must be a list")
     if not references and not videos and not audios:
         raise InputError("r2v requires at least one image, video, or audio reference")
     for index, asset in enumerate(references):
@@ -444,21 +452,35 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
         workflow["136"]["inputs"][f"ref_images.ref_image_{index}"] = [node_id, 0]
 
     for index, asset in enumerate(videos):
-        load_id = str(8200 + index * 2)
-        parts_id = str(8201 + index * 2)
+        load_id = str(8200 + index)
+        settings = video_settings[index] if index < len(video_settings) else {}
+        if not isinstance(settings, dict):
+            raise InputError(f"reference video {index + 1} settings must be an object")
+        force_rate = float(settings.get("force_rate", 24))
+        skip_first_frames = int(settings.get("skip_first_frames", settings.get("start_frame", 0)))
+        select_every_nth = int(settings.get("select_every_nth", 1))
+        if not 0 <= force_rate <= 120:
+            raise InputError(f"reference video {index + 1} force_rate must be between 0 and 120")
+        if skip_first_frames < 0:
+            raise InputError(f"reference video {index + 1} skip_first_frames cannot be negative")
+        if not 1 <= select_every_nth <= 1000:
+            raise InputError(f"reference video {index + 1} select_every_nth must be between 1 and 1000")
         workflow[load_id] = {
-            "inputs": {"file": _materialize_asset(asset, f"reference_video_{index + 1}.mp4")},
-            "class_type": "LoadVideo",
+            "inputs": {
+                "video": _materialize_asset(asset, f"reference_video_{index + 1}.mp4"),
+                "force_rate": force_rate,
+                "custom_width": 0,
+                "custom_height": 0,
+                "frame_load_cap": _output_frame_count(payload),
+                "skip_first_frames": skip_first_frames,
+                "select_every_nth": select_every_nth,
+            },
+            "class_type": "VHS_LoadVideo",
             "_meta": {"title": f"REFERENCE VIDEO {index + 1}"},
         }
-        workflow[parts_id] = {
-            "inputs": {"video": [load_id, 0]},
-            "class_type": "GetVideoComponents",
-            "_meta": {"title": f"REFERENCE VIDEO {index + 1} COMPONENTS"},
-        }
-        workflow["136"]["inputs"][f"ref_videos.ref_video_{index}"] = [parts_id, 0]
+        workflow["136"]["inputs"][f"ref_videos.ref_video_{index}"] = [load_id, 0]
         if index >= len(video_audio) or bool(video_audio[index]):
-            workflow["136"]["inputs"][f"ref_video_audios.ref_video_audio_{index}"] = [parts_id, 1]
+            workflow["136"]["inputs"][f"ref_video_audios.ref_video_audio_{index}"] = [load_id, 2]
 
     first_output_audio: list[Any] | None = None
     for index, asset in enumerate(audios):

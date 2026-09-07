@@ -1,12 +1,13 @@
 # Workflow node inventory
 
-The two API presets use only three custom-node packages:
+The two API presets and dynamic reference-video inputs use four custom-node packages:
 
 | Package | Required production nodes |
 | --- | --- |
 | `kijai/ComfyUI-KJNodes` | `MiniMaxH3MemoryEfficientSageAttentionPatch`, `ImageResizeKJv2` |
 | `Larryvrh/ComfyUI-MiniMax-H3-Turbo` | `MiniMaxH3TurboLoRA`, `MiniMaxH3TurboSampler` |
 | `Apache0ne/ComfyUI-fasterminimax` | `MiniMaxH3FirstBlockCache` |
+| `Kosinkadink/ComfyUI-VideoHelperSuite` | `VHS_LoadVideo` for reference FPS, start frame, stride, frame cap, and embedded audio |
 
 Everything else in the production graphs is part of ComfyUI core v0.33.1.
 
@@ -16,7 +17,6 @@ The original UI workflows also contain optional or bypassed editing/post-process
 | --- | --- |
 | Power LoRA loader / group bypass | `rgthree/rgthree-comfy` |
 | UI switches | `yolain/ComfyUI-Easy-Use` |
-| Legacy video load/combine | `Kosinkadink/ComfyUI-VideoHelperSuite` |
 | RIFE interpolation | `Fannovel16/ComfyUI-Frame-Interpolation` |
 | SeedVR2 upscaling | `numz/ComfyUI-SeedVR2_VideoUpscaler` / Registry package `ainvfx/ComfyUI-SeedVR2_VideoUpscaler` |
 | NVIDIA RTX VSR | `Comfy-Org/Nvidia_RTX_Nodes_ComfyUI` plus `nvidia-vfx` |

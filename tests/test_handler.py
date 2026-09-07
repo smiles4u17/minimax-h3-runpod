@@ -254,13 +254,18 @@ class WorkflowTests(unittest.TestCase):
             "references": [],
             "reference_videos": [asset("motion.mp4")],
             "reference_video_audio": [True],
+            "reference_video_settings": [{"force_rate": 30, "start_frame": 12, "select_every_nth": 2}],
             "reference_audios": [asset("voice.wav"), asset("music.wav")],
             "use_reference_audio_as_output": True,
+            "duration": 2,
         })
-        self.assertEqual(workflow["8200"]["class_type"], "LoadVideo")
-        self.assertEqual(workflow["8201"]["class_type"], "GetVideoComponents")
-        self.assertEqual(workflow["136"]["inputs"]["ref_videos.ref_video_0"], ["8201", 0])
-        self.assertEqual(workflow["136"]["inputs"]["ref_video_audios.ref_video_audio_0"], ["8201", 1])
+        self.assertEqual(workflow["8200"]["class_type"], "VHS_LoadVideo")
+        self.assertEqual(workflow["8200"]["inputs"]["force_rate"], 30.0)
+        self.assertEqual(workflow["8200"]["inputs"]["skip_first_frames"], 12)
+        self.assertEqual(workflow["8200"]["inputs"]["select_every_nth"], 2)
+        self.assertEqual(workflow["8200"]["inputs"]["frame_load_cap"], 56)
+        self.assertEqual(workflow["136"]["inputs"]["ref_videos.ref_video_0"], ["8200", 0])
+        self.assertEqual(workflow["136"]["inputs"]["ref_video_audios.ref_video_audio_0"], ["8200", 2])
         self.assertEqual(workflow["136"]["inputs"]["ref_audios.ref_audio_0"], ["8501", 0])
         self.assertEqual(workflow["136"]["inputs"]["ref_audios.ref_audio_1"], ["8503", 0])
         self.assertEqual(workflow["8501"]["inputs"]["start_index"], 0.0)

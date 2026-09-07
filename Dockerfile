@@ -19,6 +19,7 @@ ARG COMFYUI_REF=v0.33.1
 ARG KJNODES_REF=35e5956193769d18a13136cdedb73a36a05c73e6
 ARG TURBO_REF=55fee864dd7b2976b1c4ce3c3d5f7968f181409f
 ARG FBCACHE_REF=18362a23175771e68e4aa737d333bf4d4ee825fc
+ARG VHS_REF=4ee72c065db22c9d96c2427954dc69e7b908444b
 
 ENV COMFY_ROOT=/comfyui \
     COMFY_URL=http://127.0.0.1:8188 \
@@ -54,6 +55,8 @@ RUN set -eux; \
       https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git "$TURBO_REF"; \
     install_node /comfyui/custom_nodes/ComfyUI-fasterminimax \
       https://github.com/Apache0ne/ComfyUI-fasterminimax.git "$FBCACHE_REF"; \
+    install_node /comfyui/custom_nodes/ComfyUI-VideoHelperSuite \
+      https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git "$VHS_REF"; \
     for requirements in /comfyui/custom_nodes/*/requirements.txt; do \
       [ ! -f "$requirements" ] || uv pip install -r "$requirements"; \
     done
