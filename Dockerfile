@@ -1,20 +1,12 @@
 # syntax=docker/dockerfile:1.7
 
-ARG WORKER_BASE=runpod/worker-comfyui:5.8.6-base
-ARG SAGEATTENTION_WHEEL_URL=https://huggingface.co/JahJedi/sageattention-flashattn-blackwell-cu130-torch211-cp312/resolve/main/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
-ARG SAGEATTENTION_WHEEL_SHA256=4a47a462059bf09b7d10be68f93a0a462dd6184068298fc6ff10e94751fa6dd4
-ARG TORCH_VERSION=2.11.0
-ARG TORCHVISION_VERSION=0.26.0
-ARG TORCHAUDIO_VERSION=2.11.0
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
+ARG WORKER_BASE=runpod/comfyui:1.4.7-cuda13.0
+ARG SAGEATTENTION_WHEEL_URL=https://huggingface.co/harryming/sageattention-blackwell-wheels/resolve/main/wheels/torch2.10.0-cu130-cp312-blackwell/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
+ARG SAGEATTENTION_WHEEL_SHA256=b6a1c65287a1e7d802c98bf1b7267446823a15dc160b4beed3046d118bc45570
 
 FROM ${WORKER_BASE} AS runtime
 ARG SAGEATTENTION_WHEEL_URL
 ARG SAGEATTENTION_WHEEL_SHA256
-ARG TORCH_VERSION
-ARG TORCHVISION_VERSION
-ARG TORCHAUDIO_VERSION
-ARG TORCH_INDEX_URL
 ARG COMFYUI_REF=v0.33.1
 ARG KJNODES_REF=35e5956193769d18a13136cdedb73a36a05c73e6
 ARG TURBO_REF=55fee864dd7b2976b1c4ce3c3d5f7968f181409f
@@ -27,19 +19,17 @@ ENV COMFY_ROOT=/comfyui \
     ATTENTION_MODE=auto \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    UV_HTTP_TIMEOUT=900 \
     HF_HUB_ENABLE_HF_TRANSFER=1
 
-RUN uv pip install --force-reinstall \
-      "torch==${TORCH_VERSION}" \
-      "torchvision==${TORCHVISION_VERSION}" \
-      "torchaudio==${TORCHAUDIO_VERSION}" \
-      --index-url "${TORCH_INDEX_URL}"
-
-RUN git -C /comfyui fetch --depth 1 origin "${COMFYUI_REF}" \
+RUN cp -a /opt/comfyui-baked /comfyui \
+    && rm -rf /comfyui/custom_nodes/* \
+    && git -C /comfyui fetch --depth 1 origin "${COMFYUI_REF}" \
     && git -C /comfyui checkout --force FETCH_HEAD \
-    && uv pip install -r /comfyui/requirements.txt \
-    && uv pip install "transformers>=4.50.3,<5" "huggingface-hub[hf_transfer]<1"
+    && python -m pip install --no-cache-dir \
+      --constraint /opt/comfyui-runtime-constraints.txt \
+      -r /comfyui/requirements.txt \
+      "transformers>=4.50.3,<5" \
+      "huggingface-hub[hf_transfer]<1"
 
 RUN set -eux; \
     install_node() { \
@@ -58,19 +48,22 @@ RUN set -eux; \
     install_node /comfyui/custom_nodes/ComfyUI-VideoHelperSuite \
       https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git "$VHS_REF"; \
     for requirements in /comfyui/custom_nodes/*/requirements.txt; do \
-      [ ! -f "$requirements" ] || uv pip install -r "$requirements"; \
+      [ ! -f "$requirements" ] || python -m pip install --no-cache-dir \
+        --constraint /opt/comfyui-runtime-constraints.txt -r "$requirements"; \
     done
 
 RUN set -eux; \
     wheel=/tmp/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl; \
     wget --tries=5 --timeout=60 -O "$wheel" "$SAGEATTENTION_WHEEL_URL"; \
     echo "$SAGEATTENTION_WHEEL_SHA256  $wheel" | sha256sum -c -; \
-    uv pip install "$wheel"; \
+    python -m pip install --no-cache-dir --no-deps "$wheel"; \
     rm -f "$wheel"; \
-    python -c "import importlib.metadata as m, torch, sageattention; print(torch.__version__, torch.version.cuda, m.version('sageattention'))"
+    python -c "import importlib.metadata as m, torch, sageattention; assert torch.__version__.startswith('2.10.0+cu130'), torch.__version__; print(torch.__version__, torch.version.cuda, m.version('sageattention'))"
 
 COPY requirements-handler.txt /opt/minimax-h3/requirements-handler.txt
-RUN uv pip install -r /opt/minimax-h3/requirements-handler.txt
+RUN python -m pip install --no-cache-dir \
+      --constraint /opt/comfyui-runtime-constraints.txt \
+      -r /opt/minimax-h3/requirements-handler.txt
 
 COPY handler.py start.sh extra_model_paths.yaml /opt/minimax-h3/
 COPY scripts /opt/minimax-h3/scripts
@@ -79,7 +72,8 @@ RUN chmod +x /opt/minimax-h3/start.sh /opt/minimax-h3/scripts/*.py \
     && cd /comfyui \
     && timeout 300 python main.py --quick-test-for-ci --cpu
 
-CMD ["/opt/minimax-h3/start.sh"]
+ENTRYPOINT ["/opt/minimax-h3/start.sh"]
+CMD []
 
 FROM runtime AS runtime-only
 

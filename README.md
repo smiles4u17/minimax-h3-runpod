@@ -5,13 +5,14 @@ Production RunPod Serverless worker generated from the supplied FL2V/I2V and R2V
 ## What is included
  
 - ComfyUI v0.33.1
+- Pinned `runpod/comfyui:1.4.7-cuda13.0` runtime with its native PyTorch 2.10/CUDA 13 stack
 - MiniMax H3 FL2VA and Ref2VA pruned INT8 ConvRot models
 - MiniMax H3 video and audio VAEs
 - Larry v4 step-600 EMA Turbo LoRA
 - 6-step Turbo sampler preset
 - The tested `Apache0ne/ComfyUI-fasterminimax` FirstBlockCache at `0.18`, warmup `1`, maximum consecutive reuse `1`
 - MiniMax H3 memory-efficient SageAttention patch
-- Checksum-pinned SageAttention 2.2.0 Linux wheel for RTX 50-series (`sm_120`), with native-attention fallback on other NVIDIA GPUs
+- Checksum-pinned SageAttention 2.2.0 Linux wheel built for PyTorch 2.10/CUDA 13 and RTX 50-series (`sm_120`), with native-attention fallback on other NVIDIA GPUs
 - A RunPod handler that returns MP4 files, not just images
 - Simple `fl2v` and `r2v` request schemas plus raw ComfyUI API-workflow passthrough
 
@@ -20,10 +21,10 @@ Sol-Attn is removed from the production graphs. It was still present in the expo
 ## Cloud-only RunPod deployment
 
 The final Dockerfile stage is intentionally the lightweight `cloud` stage. A
-plain RunPod GitHub build therefore installs ComfyUI, the custom nodes, the
-handler, Torch, and SageAttention without downloading the model weights into
-the image. The explicit `--target final` commands below still create a baked
-image when desired.
+plain RunPod GitHub build therefore layers the pinned H3 custom nodes, handler,
+and SageAttention onto RunPod's compact CUDA 13 ComfyUI image without
+reinstalling PyTorch and without downloading model weights. The explicit
+`--target final` commands below still create a baked image when desired.
 
 1. Put this repository on GitHub and connect GitHub under RunPod Settings → Connections.
 2. Create a RunPod network volume with at least 100 GB in a data center offering RTX 5090 Serverless workers.
@@ -43,7 +44,9 @@ The runtime reads the shared models from `/runpod-volume/models` through
 
 ## Build the RTX 5090 image
 
-The default build uses CUDA 13.0, the NVFP4 AWQ Qwen text encoder, and bakes all public model files into the image.
+The cloud build uses CUDA 13.0 and reads the NVFP4 AWQ Qwen text encoder and all
+other model weights from the attached network volume. To intentionally create a
+large self-contained image instead, build the `final` target:
 
 ```bash
 docker build --target final -t YOUR_DOCKERHUB/minimax-h3-runpod:5090 .
@@ -58,19 +61,24 @@ docker build --target final \
   -t YOUR_DOCKERHUB/minimax-h3-runpod:5090 .
 ```
 
-The baked image is large: approximately 64 GB of model weights before container-layer compression. For the smallest image, build `runtime-only` and place the models on a RunPod network volume instead.
+The baked image is large: approximately 64 GB of model weights before
+container-layer compression. For the small production image, use the default
+`cloud` target (or `runtime-only`) and place the models on a RunPod network
+volume instead.
 
 ```bash
 docker build --target runtime-only -t YOUR_DOCKERHUB/minimax-h3-runpod:runtime .
 ```
 
-## Universal NVIDIA build
+## Universal NVIDIA model profile
 
-Use this variant when the endpoint may receive RTX 30/40/50, A-series, L-series, or H-series GPUs. It uses CUDA 12.8 and the INT8 ConvRot Qwen encoder.
+Use this model profile when a baked image needs the INT8 ConvRot Qwen encoder
+instead of the Blackwell-oriented default. The runtime remains on the pinned
+CUDA 13 base; native attention is selected automatically on GPUs without the
+compiled Blackwell SageAttention capability.
 
 ```bash
 docker build --target final \
-  --build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128 \
   --build-arg MODEL_PROFILE=universal \
   -t YOUR_DOCKERHUB/minimax-h3-runpod:universal .
 ```
@@ -81,7 +89,8 @@ To put both text encoders in one image and automatically select by compute capab
 
 1. Push the image to Docker Hub or another registry.
 2. Create a RunPod Serverless template using that image.
-3. Set container disk to at least 100 GB for the baked image.
+3. Set container disk to at least 20 GB for the volume-backed cloud image, or
+   at least 100 GB only for an intentionally model-baked image.
 4. Create a queue-based Serverless endpoint from the template.
 5. For the 5090 image, select RTX 5090 workers. For the universal image, select the GPU families you want.
 6. Set execution timeout to at least 30 minutes while validating; reduce it after measuring your longest 15-second job.
