@@ -7,7 +7,7 @@ COMFY_PORT="${COMFY_PORT:-8188}"
 
 mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" /runpod-volume/models/loras
 
-python "$COMFY_ROOT/main.py" \
+python3.12 "$COMFY_ROOT/main.py" \
   --listen "$COMFY_HOST" \
   --port "$COMFY_PORT" \
   --extra-model-paths-config /opt/minimax-h3/extra_model_paths.yaml \
@@ -22,7 +22,7 @@ trap shutdown EXIT INT TERM
 
 for _ in $(seq 1 180); do
   if wget -q -O /dev/null "http://$COMFY_HOST:$COMFY_PORT/system_stats"; then
-    exec python -u /opt/minimax-h3/handler.py
+    exec python3.12 -u /opt/minimax-h3/handler.py
   fi
   if ! kill -0 "$COMFY_PID" 2>/dev/null; then
     echo "ComfyUI exited before becoming ready." >&2

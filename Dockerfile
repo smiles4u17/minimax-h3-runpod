@@ -25,7 +25,7 @@ RUN cp -a /opt/comfyui-baked /comfyui \
     && rm -rf /comfyui/custom_nodes/* \
     && git -C /comfyui fetch --depth 1 origin "${COMFYUI_REF}" \
     && git -C /comfyui checkout --force FETCH_HEAD \
-    && python -m pip install --no-cache-dir \
+    && python3.12 -m pip install --no-cache-dir \
       --constraint /opt/comfyui-runtime-constraints.txt \
       -r /comfyui/requirements.txt \
       "transformers>=4.50.3,<5" \
@@ -48,7 +48,7 @@ RUN set -eux; \
     install_node /comfyui/custom_nodes/ComfyUI-VideoHelperSuite \
       https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git "$VHS_REF"; \
     for requirements in /comfyui/custom_nodes/*/requirements.txt; do \
-      [ ! -f "$requirements" ] || python -m pip install --no-cache-dir \
+      [ ! -f "$requirements" ] || python3.12 -m pip install --no-cache-dir \
         --constraint /opt/comfyui-runtime-constraints.txt -r "$requirements"; \
     done
 
@@ -56,12 +56,12 @@ RUN set -eux; \
     wheel=/tmp/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl; \
     wget --tries=5 --timeout=60 -O "$wheel" "$SAGEATTENTION_WHEEL_URL"; \
     echo "$SAGEATTENTION_WHEEL_SHA256  $wheel" | sha256sum -c -; \
-    python -m pip install --no-cache-dir --no-deps "$wheel"; \
+    python3.12 -m pip install --no-cache-dir --no-deps "$wheel"; \
     rm -f "$wheel"; \
-    python -c "import importlib.metadata as m, torch, sageattention; assert torch.__version__.startswith('2.10.0+cu130'), torch.__version__; print(torch.__version__, torch.version.cuda, m.version('sageattention'))"
+    python3.12 -c "import importlib.metadata as m, torch, sageattention; assert torch.__version__.startswith('2.10.0+cu130'), torch.__version__; print(torch.__version__, torch.version.cuda, m.version('sageattention'))"
 
 COPY requirements-handler.txt /opt/minimax-h3/requirements-handler.txt
-RUN python -m pip install --no-cache-dir \
+RUN python3.12 -m pip install --no-cache-dir \
       --constraint /opt/comfyui-runtime-constraints.txt \
       -r /opt/minimax-h3/requirements-handler.txt
 
@@ -70,7 +70,7 @@ COPY scripts /opt/minimax-h3/scripts
 COPY workflows /opt/minimax-h3/workflows
 RUN chmod +x /opt/minimax-h3/start.sh /opt/minimax-h3/scripts/*.py \
     && cd /comfyui \
-    && timeout 300 python main.py --quick-test-for-ci --cpu
+    && timeout 300 python3.12 main.py --quick-test-for-ci --cpu
 
 ENTRYPOINT ["/opt/minimax-h3/start.sh"]
 CMD []
@@ -82,24 +82,24 @@ ARG MODEL_PROFILE=blackwell
 ENV MODEL_PROFILE=${MODEL_PROFILE}
 RUN --mount=type=secret,id=hf_token,required=false \
     export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
-    python /opt/minimax-h3/scripts/download_models.py --asset fl2v
+    python3.12 /opt/minimax-h3/scripts/download_models.py --asset fl2v
 RUN --mount=type=secret,id=hf_token,required=false \
     export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
-    python /opt/minimax-h3/scripts/download_models.py --asset r2v
+    python3.12 /opt/minimax-h3/scripts/download_models.py --asset r2v
 RUN --mount=type=secret,id=hf_token,required=false \
     export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
-    python /opt/minimax-h3/scripts/download_models.py --asset video-vae --asset audio-vae
+    python3.12 /opt/minimax-h3/scripts/download_models.py --asset video-vae --asset audio-vae
 RUN --mount=type=secret,id=hf_token,required=false \
     export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
-    python /opt/minimax-h3/scripts/download_models.py --asset turbo
+    python3.12 /opt/minimax-h3/scripts/download_models.py --asset turbo
 RUN --mount=type=secret,id=hf_token,required=false \
     export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
     if [ "$MODEL_PROFILE" = "blackwell" ]; then \
-      python /opt/minimax-h3/scripts/download_models.py --asset text-blackwell; \
+      python3.12 /opt/minimax-h3/scripts/download_models.py --asset text-blackwell; \
     elif [ "$MODEL_PROFILE" = "universal" ]; then \
-      python /opt/minimax-h3/scripts/download_models.py --asset text-universal; \
+      python3.12 /opt/minimax-h3/scripts/download_models.py --asset text-universal; \
     elif [ "$MODEL_PROFILE" = "dual" ]; then \
-      python /opt/minimax-h3/scripts/download_models.py --asset text-blackwell --asset text-universal; \
+      python3.12 /opt/minimax-h3/scripts/download_models.py --asset text-blackwell --asset text-universal; \
     else \
       echo "MODEL_PROFILE must be blackwell, universal, or dual" >&2; exit 2; \
     fi
