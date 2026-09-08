@@ -28,6 +28,7 @@ COMFY_ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
 INPUT_DIR = COMFY_ROOT / "input"
 OUTPUT_DIR = COMFY_ROOT / "output"
 FLAT_OUTPUT_DIR = Path("/runpod-volume/outputs")
+VOLUME_ROOT = Path(os.environ.get("RUNPOD_VOLUME_ROOT", "/runpod-volume"))
 TEMPLATE_DIR = Path(os.environ.get("WORKFLOW_DIR", "/opt/minimax-h3/workflows"))
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
 COMFY_HOST = os.environ.get("COMFY_HOST", "127.0.0.1")
@@ -368,7 +369,7 @@ def _decode_data(value: str) -> bytes:
 
 def _materialize_asset(spec: dict[str, Any], fallback_name: str, *, preserve_name: bool = False) -> str:
     if not isinstance(spec, dict):
-        raise InputError("Assets must be objects containing data or url.")
+        raise InputError("Assets must be objects containing data, url, or volume_path.")
     supplied_name = str(spec.get("name", ""))
     if preserve_name:
         if not supplied_name:
@@ -379,6 +380,18 @@ def _materialize_asset(spec: dict[str, Any], fallback_name: str, *, preserve_nam
     destination = INPUT_DIR / filename
     if "data" in spec:
         destination.write_bytes(_decode_data(str(spec["data"])))
+    elif "volume_path" in spec:
+        root = VOLUME_ROOT.resolve()
+        source = Path(str(spec["volume_path"])).resolve()
+        try:
+            source.relative_to(root)
+        except ValueError as exc:
+            raise InputError(f"Asset volume_path is outside the attached network volume: {root}") from exc
+        if not source.is_file():
+            raise InputError(f"Asset volume_path does not exist: {source}")
+        if source.stat().st_size > MAX_ASSET_BYTES:
+            raise InputError("Asset exceeds MAX_ASSET_MB.")
+        shutil.copy2(source, destination)
     elif "url" in spec:
         url = str(spec["url"])
         _validate_remote_url(url)
@@ -392,7 +405,7 @@ def _materialize_asset(spec: dict[str, Any], fallback_name: str, *, preserve_nam
                         raise InputError("Asset exceeds MAX_ASSET_MB.")
                     handle.write(chunk)
     else:
-        raise InputError("Asset must contain data or url.")
+        raise InputError("Asset must contain data, url, or volume_path.")
     return filename
 
 

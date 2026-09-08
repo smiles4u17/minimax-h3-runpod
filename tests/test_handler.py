@@ -53,6 +53,31 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(handler._attention_mode("native", (12, 0)), "native")
             self.assertEqual(handler._attention_mode("sage", (12, 0)), "sage")
 
+    def test_materializes_asset_from_attached_network_volume(self) -> None:
+        volume_root = Path(self.temp.name) / "runpod-volume"
+        source = volume_root / "outputs" / "reference.mp4"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"volume-video")
+        with mock.patch.object(handler, "VOLUME_ROOT", volume_root):
+            filename = handler._materialize_asset(
+                {"name": "reference.mp4", "volume_path": str(source)},
+                "reference.mp4",
+            )
+        self.assertTrue(filename.endswith("_reference.mp4"))
+        self.assertEqual((handler.INPUT_DIR / filename).read_bytes(), b"volume-video")
+
+    def test_rejects_volume_asset_outside_attached_volume(self) -> None:
+        volume_root = Path(self.temp.name) / "runpod-volume"
+        volume_root.mkdir()
+        outside = Path(self.temp.name) / "outside.mp4"
+        outside.write_bytes(b"nope")
+        with mock.patch.object(handler, "VOLUME_ROOT", volume_root):
+            with self.assertRaisesRegex(handler.InputError, "outside the attached network volume"):
+                handler._materialize_asset(
+                    {"name": "outside.mp4", "volume_path": str(outside)},
+                    "outside.mp4",
+                )
+
     def test_comfy_readiness_starts_replacement_when_server_is_missing(self) -> None:
         process = mock.Mock()
         process.poll.return_value = None
