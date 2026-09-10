@@ -12,6 +12,7 @@ Production RunPod Serverless worker generated from the supplied FL2V/I2V and R2V
 - 6-step Turbo sampler preset
 - The tested `Apache0ne/ComfyUI-fasterminimax` FirstBlockCache at `0.18`, warmup `1`, maximum consecutive reuse `1`
 - MiniMax H3 memory-efficient SageAttention patch
+- Pinned MiniMax H3 MLP activation chunking on GPUs with 48 GB VRAM or less
 - Checksum-pinned SageAttention 2.2.0 Linux wheel built for PyTorch 2.10/CUDA 13 and RTX 50-series (`sm_120`), with native-attention fallback on other NVIDIA GPUs
 - A RunPod handler that returns MP4 files, not just images
 - Simple `fl2v` and `r2v` request schemas plus raw ComfyUI API-workflow passthrough
@@ -112,6 +113,14 @@ providers supporting signed PUT requests.
 Cache defaults to off. Explicit request attention overrides `ATTENTION_MODE`;
 `auto` continues to select Sage on supported hardware. Workflow LoRAs are
 preserved and their effective names and weights are included in result metadata.
+
+Workers detect their VRAM at startup. GPUs with 48 GB or less automatically use
+the `minimum_vram` H3 chunking profile, disable H3 block prefetch and ComfyUI's
+execution cache, reserve 1 GB of VRAM, and aggressively offload unused models.
+Larger GPUs keep the normal graph and launch settings. These defaults can be
+overridden with `H3_LOW_VRAM_MODE`, `H3_LOW_VRAM_PROFILE`,
+`H3_LOW_VRAM_THRESHOLD_GB`, `H3_LOW_VRAM_RESERVE_GB`, and
+`H3_LOW_VRAM_HEADROOM_GB`.
 
 MP4 results often exceed RunPod's response-size limit. The worker chooses output delivery in this order:
 

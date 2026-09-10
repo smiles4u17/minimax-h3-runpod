@@ -119,6 +119,7 @@ class WorkflowTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
         handler._gpu_info = lambda: ("RTX 5090", (12, 0))
+        handler._gpu_total_vram_gb = lambda: 96.0
         handler._sage_available = lambda: True
 
     def tearDown(self) -> None:
@@ -174,6 +175,50 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["124"]["inputs"]["model"], ["145", 0])
         self.assertEqual(metadata["attention"], "sage")
         self.assertFalse(metadata["cache_enabled"])
+
+    def test_32gb_worker_chunks_h3_before_loras_attention_and_cache(self) -> None:
+        lora = handler.COMFY_ROOT / "models" / "loras" / "H3" / "test.safetensors"
+        lora.parent.mkdir(parents=True, exist_ok=True)
+        lora.touch()
+        with mock.patch.object(handler, "_gpu_total_vram_gb", return_value=32.0):
+            workflow, metadata = handler.build_preset({
+                "task": "r2v",
+                "prompt": "test prompt",
+                "references": [asset("one.png")],
+                "turbo_enabled": False,
+                "cache_enabled": True,
+                "loras": [{"name": "H3/test.safetensors", "strength": 1.0}],
+            })
+        self.assertEqual(workflow["9140"]["class_type"], "MiniMaxH3LowVRAM")
+        self.assertEqual(workflow["9140"]["inputs"]["model"], ["127", 0])
+        self.assertEqual(workflow["9140"]["inputs"]["memory_profile"], "minimum_vram")
+        self.assertEqual(workflow["9140"]["inputs"]["block_prefetch"], "disable")
+        self.assertEqual(workflow["9100"]["inputs"]["model"], ["9140", 0])
+        self.assertEqual(workflow["145"]["inputs"]["model"], ["9100", 0])
+        self.assertEqual(workflow["210"]["inputs"]["model"], ["145", 0])
+        self.assertEqual(metadata["gpu_vram_gb"], 32.0)
+        self.assertEqual(metadata["low_vram_profile"], "minimum_vram")
+
+    def test_96gb_worker_keeps_normal_graph(self) -> None:
+        workflow, metadata = handler.build_preset({
+            "task": "r2v",
+            "prompt": "test prompt",
+            "references": [asset("one.png")],
+        })
+        self.assertNotIn("9140", workflow)
+        self.assertIsNone(metadata["low_vram_profile"])
+
+    def test_32gb_comfy_restart_uses_memory_guardrails(self) -> None:
+        with (
+            mock.patch.object(handler, "_gpu_total_vram_gb", return_value=32.0),
+            mock.patch.dict(handler.os.environ, {"COMFY_ARGS": "--dont-print-server"}),
+        ):
+            args = handler._comfy_launch_args()
+        self.assertEqual(args[-1], "--dont-print-server")
+        self.assertIn("--reserve-vram", args)
+        self.assertIn("--vram-headroom", args)
+        self.assertIn("--disable-smart-memory", args)
+        self.assertIn("--cache-none", args)
 
     def test_metadata_records_exact_workflow_loras(self) -> None:
         lora_root = handler.COMFY_ROOT / "models" / "loras" / "H3"

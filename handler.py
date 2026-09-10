@@ -37,6 +37,7 @@ COMFY_START_TIMEOUT = int(os.environ.get("COMFY_START_TIMEOUT_SECONDS", "180"))
 JOB_TIMEOUT = int(os.environ.get("JOB_TIMEOUT_SECONDS", "3600"))
 MAX_ASSET_BYTES = int(os.environ.get("MAX_ASSET_MB", "250")) * 1024 * 1024
 MAX_BASE64_BYTES = int(os.environ.get("MAX_RETURN_BASE64_MB", "6")) * 1024 * 1024
+LOW_VRAM_THRESHOLD_GB = float(os.environ.get("H3_LOW_VRAM_THRESHOLD_GB", "48"))
 
 BLACKWELL_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 UNIVERSAL_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
@@ -97,7 +98,7 @@ def _ensure_comfy_ready(timeout: int = COMFY_START_TIMEOUT) -> None:
                 str(COMFY_PORT),
                 "--extra-model-paths-config",
                 "/opt/minimax-h3/extra_model_paths.yaml",
-                *shlex.split(os.environ.get("COMFY_ARGS", "")),
+                *_comfy_launch_args(),
             ]
             print("ComfyUI is unavailable; starting a replacement process.", flush=True)
             _COMFY_PROCESS = subprocess.Popen(command, cwd=str(COMFY_ROOT))
@@ -122,6 +123,50 @@ def _gpu_info() -> tuple[str, tuple[int, int] | None]:
     except Exception:
         pass
     return "unknown", None
+
+
+def _gpu_total_vram_gb() -> float | None:
+    configured_mb = os.environ.get("H3_GPU_MEMORY_MB")
+    if configured_mb:
+        try:
+            return float(configured_mb) / 1024
+        except ValueError:
+            pass
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return float(torch.cuda.get_device_properties(0).total_memory) / (1024**3)
+    except Exception:
+        pass
+    return None
+
+
+def _low_vram_worker(total_vram_gb: float | None = None) -> bool:
+    mode = os.environ.get("H3_LOW_VRAM_MODE", "auto").strip().lower()
+    if mode in {"1", "true", "yes", "on", "force"}:
+        return True
+    if mode in {"0", "false", "no", "off", "disabled"}:
+        return False
+    if mode != "auto":
+        raise RuntimeError("H3_LOW_VRAM_MODE must be auto, on, or off")
+    memory = _gpu_total_vram_gb() if total_vram_gb is None else total_vram_gb
+    return memory is not None and memory <= LOW_VRAM_THRESHOLD_GB
+
+
+def _comfy_launch_args() -> list[str]:
+    args = shlex.split(os.environ.get("COMFY_ARGS", ""))
+    if not _low_vram_worker():
+        return args
+    automatic = [
+        "--reserve-vram",
+        os.environ.get("H3_LOW_VRAM_RESERVE_GB", "1"),
+        "--vram-headroom",
+        os.environ.get("H3_LOW_VRAM_HEADROOM_GB", "1"),
+        "--disable-smart-memory",
+        "--cache-none",
+    ]
+    return [*automatic, *args]
 
 
 def _model_exists(folder: str, name: str) -> bool:
@@ -204,8 +249,12 @@ def _model_name(payload: dict[str, Any], key: str, folder: str, fallback: str) -
     return name
 
 
-def _apply_loras(workflow: dict[str, Any], loras: list[dict[str, Any]]) -> list[Any]:
-    previous: list[Any] = ["127", 0]
+def _apply_loras(
+    workflow: dict[str, Any],
+    loras: list[dict[str, Any]],
+    model: list[Any] | None = None,
+) -> list[Any]:
+    previous: list[Any] = model or ["127", 0]
     for index, item in enumerate(loras):
         if not isinstance(item, dict) or "name" not in item:
             raise InputError("Each LoRA must contain name and may contain strength.")
@@ -225,6 +274,7 @@ def _apply_loras(workflow: dict[str, Any], loras: list[dict[str, Any]]) -> list[
 
 def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     gpu_name, capability = _gpu_info()
+    total_vram_gb = _gpu_total_vram_gb()
     workflow["138"]["inputs"]["value"] = str(payload.get("prompt", "")).strip()
     if not workflow["138"]["inputs"]["value"]:
         raise InputError("prompt is required")
@@ -271,7 +321,28 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     workflow["120"]["inputs"]["vae_name"] = _model_name(payload, "audio_vae", "vae", default_audio_vae)
     workflow["128"]["inputs"]["clip_name"] = _model_name({"clip": selected_encoder}, "clip", "text_encoders", selected_encoder)
 
-    model: list[Any] = _apply_loras(workflow, list(payload.get("loras", [])))
+    low_vram = _low_vram_worker(total_vram_gb)
+    model: list[Any] = ["127", 0]
+    low_vram_profile: str | None = None
+    if low_vram:
+        low_vram_profile = os.environ.get("H3_LOW_VRAM_PROFILE", "minimum_vram")
+        if low_vram_profile not in {"balanced", "low_vram", "minimum_vram", "maximum_speed"}:
+            raise RuntimeError("H3_LOW_VRAM_PROFILE must be balanced, low_vram, minimum_vram, or maximum_speed")
+        workflow["9140"] = {
+            "inputs": {
+                "model": model,
+                "enabled": True,
+                "memory_profile": low_vram_profile,
+                "custom_chunk_tokens": 8192,
+                "block_prefetch": "disable",
+                "verbose": True,
+            },
+            "class_type": "MiniMaxH3LowVRAM",
+            "_meta": {"title": f"API H3 low VRAM: {low_vram_profile}"},
+        }
+        model = ["9140", 0]
+
+    model = _apply_loras(workflow, list(payload.get("loras", [])), model)
     if turbo_enabled:
         turbo_name = _normalize_lora_name(str(payload.get("turbo_lora") or "H3/minimax_h3_turbo_v4_step600_ema.safetensors"))
         turbo_strength = float(payload.get("turbo_strength", 1.0))
@@ -316,7 +387,9 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     workflow[spec["save"]]["inputs"]["filename_prefix"] = f"video/{prefix or 'MiniMax_H3'}"
     return {
         "gpu": gpu_name,
+        "gpu_vram_gb": round(total_vram_gb, 2) if total_vram_gb is not None else None,
         "compute_capability": capability,
+        "low_vram_profile": low_vram_profile,
         "attention": attention,
         "text_encoder": workflow["128"]["inputs"]["clip_name"],
         "model": workflow["127"]["inputs"]["unet_name"],
