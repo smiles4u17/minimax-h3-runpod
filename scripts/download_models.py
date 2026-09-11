@@ -14,8 +14,8 @@ ASSET_REVISIONS = {"sla-fl2v": "f7c676b328719e281ad0d6e13dce4b54b713f985", "pdd-
 
 ASSETS = {
     "sla-fl2v": ("asadkhan89/Minimax-h3-Turbo-SLA", "minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors", "loras/H3"),
-    "pdd-fl2v": ("Kijai/MiniMax-H3-experimental", "loras/MiniMax-H3-FL2VA-Acc-8Step_comfy.safetensors", "loras"),
-    "pdd-r2v": ("Kijai/MiniMax-H3-experimental", "loras/MiniMax-H3-Ref2VA-Acc-8Step_comfy.safetensors", "loras"),
+    "pdd-fl2v": ("Kijai/MiniMax-H3-experimental", "loras/MiniMax-H3-FL2VA-Acc-8Step_pruned_comfy.safetensors", "loras"),
+    "pdd-r2v": ("Kijai/MiniMax-H3-experimental", "loras/MiniMax-H3-Ref2VA-Acc-8Step_pruned_comfy.safetensors", "loras"),
     "fl2v": (
         "Comfy-Org/MiniMax-H3",
         "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",

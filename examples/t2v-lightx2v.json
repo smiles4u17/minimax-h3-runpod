@@ -1,0 +1,17 @@
+{
+  "input": {
+    "task": "t2v",
+    "prompt": "A blue ceramic toy robot waves on a wooden table in warm morning light. Quiet room ambience.",
+    "duration": 2,
+    "megapixels": 0.2,
+    "steps": 12,
+    "sampler": "euler",
+    "scheduler": "simple",
+    "turbo_enabled": true,
+    "turbo_family": "lightx2v",
+    "turbo_lora": "H3/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+    "attention": "native",
+    "cache_enabled": false,
+    "seed": 424242
+  }
+}

@@ -1,0 +1,58 @@
+[
+  {
+    "repo": "Comfy-Org/MiniMax-H3",
+    "revision": "a98869194787969724c7425d95d0ed73ce9202af",
+    "file": "loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+    "size": 1956192992,
+    "sha256": "c396a9a06f58399e9df9754b18299818d84a2ddd371724ba48fe4a41221437dc",
+    "key": "models/loras/H3/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors"
+  },
+  {
+    "repo": "Comfy-Org/MiniMax-H3",
+    "revision": "a98869194787969724c7425d95d0ed73ce9202af",
+    "file": "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+    "size": 1956193000,
+    "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e",
+    "key": "models/loras/H3/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+  },
+  {
+    "repo": "Comfy-Org/MiniMax-H3",
+    "revision": "a98869194787969724c7425d95d0ed73ce9202af",
+    "file": "loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+    "size": 1956193000,
+    "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c",
+    "key": "models/loras/H3/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+  },
+  {
+    "repo": "Kijai/MiniMax-H3-experimental",
+    "revision": "f4cac997f880e93cf6940af61ee8d58ef31ff7f3",
+    "file": "loras/MiniMax-H3-FL2VA-Acc-8Step_pruned_comfy.safetensors",
+    "size": 1725921392,
+    "sha256": "e97b813a6f857b9dab310f31ec30a8334f63a3e7dcb5d07c0c91933d3447a897",
+    "key": "models/loras/H3/MiniMax-H3-FL2VA-Acc-8Step_pruned_comfy.safetensors"
+  },
+  {
+    "repo": "Kijai/MiniMax-H3-experimental",
+    "revision": "f4cac997f880e93cf6940af61ee8d58ef31ff7f3",
+    "file": "loras/MiniMax-H3-Ref2VA-Acc-8Step_pruned_comfy.safetensors",
+    "size": 1725921392,
+    "sha256": "6f18e1c2eccb14b37322607730f26b16bf1169b56cd098ea006cffaec43d1e39",
+    "key": "models/loras/H3/MiniMax-H3-Ref2VA-Acc-8Step_pruned_comfy.safetensors"
+  },
+  {
+    "repo": "asadkhan89/Minimax-h3-Turbo-SLA",
+    "revision": "f7c676b328719e281ad0d6e13dce4b54b713f985",
+    "file": "minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors",
+    "size": 1956192992,
+    "sha256": "5cae6df40a06ea825f85fc8876c9ea1c9692c833a9af07bb8b3bac9ce2a71bac",
+    "key": "models/loras/H3/minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors"
+  },
+  {
+    "repo": "larryvrh/MiniMax-H3-Turbo-Lora",
+    "revision": "43a74557ac3f6539db8e0f2a959d03feb7a81480",
+    "file": "minimax_h3_turbo_v4_step600_ema.safetensors",
+    "size": 779849816,
+    "sha256": "5f3a626cd72c93a8b9318d6760c510bc5092d2ab13aaba1f932c5bab07a416d3",
+    "key": "models/loras/H3/minimax_h3_turbo_v4_step600_ema.safetensors"
+  }
+]

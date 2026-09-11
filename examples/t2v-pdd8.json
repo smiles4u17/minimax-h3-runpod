@@ -14,7 +14,7 @@
     "pdd_enabled": true,
     "loras": [
       {
-        "name": "MiniMax-H3-FL2VA-Acc-8Step_comfy.safetensors",
+        "name": "MiniMax-H3-FL2VA-Acc-8Step_pruned_comfy.safetensors",
         "strength": 1
       }
     ]

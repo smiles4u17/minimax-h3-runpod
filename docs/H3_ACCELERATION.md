@@ -24,7 +24,9 @@ then runs ComfyUI's CPU startup check. These checks do not measure GPU quality.
 
 ## Install optional weights
 
-Run the following on a development pod with the H3 volume mounted. Set COMFY_ROOT
+Installed and SHA256-verified on volume `vgc3ky6r6y` on September 11, 2026: three LightX2V Turbo adapters (FL2V 4/8 step, Ref2V 4 step), both pruned PDD adapters, and the SLA FL2V adapter. The existing Larry v4 EMA adapter was also verified. See `h3_acceleration_installation.json`. No manual pod installation is needed. The temporary download pod was deleted.
+
+For recovery on a different volume, set COMFY_ROOT
 to `/runpod-volume` so downloads persist under `/runpod-volume/models`:
 
 ```sh
@@ -71,3 +73,25 @@ Preserve the existing endpoint GPU pools, volume and worker limits.
 - https://huggingface.co/asadkhan89/Minimax-h3-Turbo-SLA
 - https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs
 - https://huggingface.co/Kijai/MiniMax-H3-experimental
+
+## Step counts and Turbo families
+
+The console and worker accept positive whole-number step counts without the old
+4-8 Turbo or 4-50 regular limits. Presets still suggest their trained count;
+changing the Turbo family does not clamp or reset a manually chosen count. PDD's
+8 steps are now a recommendation too. ComfyUI's own node validation remains in
+force; more steps do not imply higher quality for a distilled model.
+
+Select **Larry Turbo** for its dedicated loader/sampler. Select **LightX2V** for
+ComfyUI-converted adapters, the standard model-only LoRA loader, and Euler/simple.
+The family control chooses a task-matched 4-step file; the file dropdown also
+provides LightX2V's FL2V 8-step adapter. FL2V uses flow shifts 6/3; Ref2V uses 12/3.
+**Auto from selected file** detects the converted LightX2V filenames. Mismatched
+FL2V/Ref2V adapters and Larry's dedicated sampler with LightX2V are rejected.
+This uses ComfyUI's native AV implementation, not a separate LightX2V engine.
+
+Source configurations:
+https://github.com/ModelTC/LightX2V/tree/main/configs/minimax_h3/dmd
+
+The `console/` directory contains a runnable source snapshot of the local console,
+including its UI and tests. It is excluded from the worker Docker build context.

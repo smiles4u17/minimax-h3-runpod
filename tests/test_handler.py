@@ -62,10 +62,36 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(graph["9161"]["inputs"]["shift_video"], 12)
         self.assertEqual(graph["9161"]["inputs"]["shift_audio"], 3)
         self.assertEqual(graph["126"]["inputs"]["model"], ["9161", 0])
-        with self.assertRaises(handler.InputError):
-            handler.build_preset(dict(data, steps=6))
+        graph, _ = handler.build_preset(dict(data, steps=64))
+        self.assertEqual(graph["124"]["inputs"]["steps"], 64)
         with self.assertRaises(handler.InputError):
             handler.build_preset(dict(data, loras=[]))
+
+    def test_step_counts_are_not_limited_by_turbo_training_count(self):
+        for turbo, sampler in ((True, "h3_turbo"), (False, "euler")):
+            for steps in (1, 12, 80, 160):
+                graph, _ = handler.build_preset({"task": "t2v", "prompt": "robot", "steps": steps,
+                    "turbo_enabled": turbo, "sampler": sampler})
+                self.assertEqual(graph["124"]["inputs"]["steps"], steps)
+        for steps in (0, -1, 1.5, True):
+            with self.assertRaises(handler.InputError):
+                handler.build_preset({"task": "t2v", "prompt": "robot", "steps": steps})
+
+    def test_lightx_uses_standard_loader_and_task_specific_shifts(self):
+        for task, name, shift in (("t2v", "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors", 6),
+                                  ("r2v", "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", 12)):
+            (handler.COMFY_ROOT / "models" / "loras" / name).write_bytes(b"fixture")
+            graph, meta = handler.build_preset({"task": task, "prompt": "robot", "steps": 32,
+                "turbo_enabled": True, "turbo_family": "lightx2v", "turbo_lora": name,
+                "sampler": "euler", "references": [asset("robot.png")]})
+            self.assertEqual(graph["152"]["class_type"], "LoraLoaderModelOnly")
+            self.assertEqual(graph["152"]["inputs"]["strength_model"], 1)
+            self.assertEqual(graph["9162"]["inputs"]["shift_video"], shift)
+            self.assertEqual(meta["turbo_family"], "lightx2v")
+            self.assertEqual(graph["124"]["inputs"]["steps"], 32)
+        with self.assertRaisesRegex(handler.InputError, "does not match"):
+            handler.build_preset({"task": "t2v", "prompt": "robot", "turbo_lora": name,
+                "turbo_family": "lightx2v", "sampler": "euler"})
 
     def test_masked_r2v_routes_source_and_mask_to_sampler(self):
         workflow, _ = handler.build_preset({

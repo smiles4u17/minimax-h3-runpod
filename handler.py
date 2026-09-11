@@ -297,10 +297,8 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         raise InputError(f"Unsupported scheduler: {scheduler}")
     if sampler == "h3_turbo" and not turbo_enabled:
         raise InputError("The dedicated H3 Turbo sampler requires turbo_enabled=true")
-    if (turbo_enabled or sampler == "h3_turbo") and not 4 <= steps <= 8:
-        raise InputError("steps must be between 4 and 8 when Turbo is enabled")
-    if not turbo_enabled and sampler != "h3_turbo" and not 4 <= steps <= 50:
-        raise InputError("steps must be between 4 and 50 when Turbo is disabled")
+    if steps < 1 or isinstance(payload.get("steps"), bool) or float(payload.get("steps", 6)) != steps:
+        raise InputError("steps must be a positive whole number")
     if not 0 <= threshold <= 1:
         raise InputError("cache_threshold must be between 0 and 1")
 
@@ -343,6 +341,7 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         model = ["9140", 0]
 
     model = _apply_loras(workflow, list(payload.get("loras", [])), model)
+    turbo_family = "none"
     if turbo_enabled:
         turbo_name = _normalize_lora_name(str(payload.get("turbo_lora") or "H3/minimax_h3_turbo_v4_step600_ema.safetensors"))
         turbo_strength = float(payload.get("turbo_strength", 1.0))
@@ -350,8 +349,28 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
             raise InputError("turbo_strength must be between 0 and 2")
         if not _model_exists("loras", turbo_name):
             raise InputError(f"Turbo LoRA is not installed in models/loras: {turbo_name}")
-        workflow["152"]["inputs"].update(model=model, lora_name=turbo_name, strength=turbo_strength)
-        model = ["152", 0]
+        lightx = "_comfyui_" in turbo_name.lower() and "minimax_h3_" in turbo_name.lower()
+        turbo_family = str(payload.get("turbo_family") or "auto").lower()
+        if turbo_family == "auto":
+            turbo_family = "lightx2v" if lightx else "larry"
+        if turbo_family not in {"larry", "lightx2v"}:
+            raise InputError("turbo_family must be auto, larry or lightx2v")
+        if lightx and turbo_family == "larry":
+            raise InputError("The selected LightX2V LoRA requires the LightX2V loader")
+        if turbo_family == "lightx2v":
+            is_ref = spec["conditioning"] == "136"
+            if ("_fl2v_" in turbo_name and is_ref) or ("_ref2v_" in turbo_name and not is_ref):
+                raise InputError("LightX2V LoRA does not match the current FL2V/Ref2V task")
+            if sampler == "h3_turbo":
+                raise InputError("Choose Euler or another regular sampler for the LightX2V LoRA")
+            workflow["152"] = {"class_type": "LoraLoaderModelOnly", "inputs": {
+                "model": model, "lora_name": turbo_name, "strength_model": turbo_strength}}
+            workflow["9162"] = {"class_type": "MiniMaxH3SigmaShift", "inputs": {
+                "model": ["152", 0], "shift_video": 12.0 if is_ref else 6.0, "shift_audio": 3.0}}
+            model = ["9162", 0]
+        else:
+            workflow["152"]["inputs"].update(model=model, lora_name=turbo_name, strength=turbo_strength)
+            model = ["152", 0]
     else:
         workflow.pop("152", None)
 
@@ -383,8 +402,8 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
             raise InputError(f"PDD requires the converted {expected} Acc-8Step ComfyUI LoRA")
         if "shift_video" in payload or "shift_audio" in payload:
             raise InputError("PDD fixes the flow shifts at 12/3; remove custom shifts")
-        if turbo_enabled or steps != 8 or sampler != "euler" or scheduler != "simple" or cache_enabled:
-            raise InputError("PDD requires Euler/simple, 8 steps, separate Turbo and cache disabled")
+        if turbo_enabled or sampler != "euler" or scheduler != "simple" or cache_enabled:
+            raise InputError("PDD requires Euler/simple, separate Turbo and cache disabled; 8 steps recommended")
         workflow["9161"] = {"class_type": "MiniMaxH3SigmaShift", "inputs": {
             "model": model, "shift_video": 12.0, "shift_audio": 3.0}}
         model = ["9161", 0]
@@ -436,6 +455,8 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "video_vae": workflow["119"]["inputs"]["vae_name"],
         "audio_vae": workflow["120"]["inputs"]["vae_name"],
         "turbo_enabled": turbo_enabled,
+        "turbo_family": turbo_family,
+        "steps": steps,
         "sampler": sampler,
         "scheduler": scheduler,
         "cache_enabled": cache_enabled,

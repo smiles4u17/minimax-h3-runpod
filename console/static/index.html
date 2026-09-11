@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RunPod Media Console Web</title>
+<link rel="stylesheet" href="/static/styles.css?v=15.54" />
+</head>
+<body>
+<header>
+  <div><h1>RunPod Media Console</h1><p id="version">web interface</p></div>
+  <div class="tabs"><button data-tab="workflow">Workflow</button><button data-tab="inf" class="active">InfiniteTalk</button><button data-tab="wan">WanAnimate</button><button data-tab="h3">MiniMax H3</button><button data-tab="model_manager">H3 Model Manager</button><button data-tab="samimate">SAMimate</button><button data-tab="sam">SAM Studio</button><button data-tab="image_editor">Image Editor</button><button data-tab="tts">Text to Speech</button><button data-tab="settings">Settings</button><button data-tab="browser">Media Browser</button></div>
+</header>
+<main>
+<section id="workflow" class="tab panel">
+  <h2>Subject Replacement Workflow</h2>
+  <div class="workflowBoard">
+    <div class="card workflowStep"><h3>1. Source</h3><p>Load the original video and a reference image for the new subject.</p><button onclick="workflowUseCurrentInputs()">Use current Wan/SAMimate inputs</button><button onclick="showTab('samimate')">Open SAMimate</button></div>
+    <div class="card workflowStep"><h3>2. Validate</h3><p>Check required files, endpoint settings, dimensions, duration, and mask alignment before a paid/slow run.</p><button class="run" onclick="validateCurrent('samimate')">Validate SAMimate</button><button onclick="previewPayload('samimate')">Preview Payload</button></div>
+    <div class="card workflowStep"><h3>3. Run</h3><p>SAMimate segments the source, sends the subject mask to WanAnimate, and composites the edited subject back over the original background.</p><button class="run" onclick="showTab('samimate')">Go to Run Controls</button><button onclick="refreshRecentOutputs()">Refresh Outputs</button></div>
+  </div>
+  <div class="grid two">
+    <div class="card"><h3>Workflow Status</h3><div id="workflow_status" class="validationList">Ready.</div></div>
+    <div class="card"><div class="cardTitleRow"><h3>Job History</h3><button type="button" onclick="loadJobHistory()">Refresh</button></div><div id="job_history" class="jobHistoryList"></div></div>
+  </div>
+  <div class="card"><div class="cardTitleRow"><h3>Recent Outputs</h3><button type="button" onclick="refreshRecentOutputs()">Refresh</button></div><div id="recent_outputs" class="outputGrid"></div></div>
+</section>
+<section id="inf" class="tab active panel">
+  <h2>InfiniteTalk</h2>
+  <div class="grid two">
+    <div class="card"><h3>Inputs</h3>
+      <label title="Choose whether InfiniteTalk should use a still reference image or a reference video.">Input Type<select id="inf_input_type"><option value="image">Image</option><option value="video">Video</option></select></label>
+      <label title="Single uses one speaker track. Multi lets you provide a second audio track.">Person Count<select id="inf_person_count"><option value="single">Single</option><option value="multi">Multi</option></select></label>
+      <div class="drop" data-target="inf_image_path" data-kind="image" title="Reference image for image mode.">Drop image here<input id="inf_image_path" placeholder="Image path / URL" /></div>
+      <div class="drop" data-target="inf_video_path" data-kind="video" title="Reference video for video mode.">Drop video here<input id="inf_video_path" placeholder="Video path / URL" /></div>
+      <div class="drop" data-target="inf_audio_path" data-kind="audio" title="Primary audio track for the speaker.">Drop audio here<input id="inf_audio_path" placeholder="Audio path / URL" /></div>
+      <div class="drop multiOnly" id="inf_audio2_drop" data-target="inf_audio2_path" data-kind="audio" title="Second audio track used in multi-person mode.">Drop audio 2 here<input id="inf_audio2_path" placeholder="Audio 2 path / URL" /></div>
+      <div class="previewStack">
+        <img id="inf_image_preview" class="mediaPreview hidden" alt="InfiniteTalk image preview" />
+        <video id="inf_video_preview" class="mediaPreview hidden" controls muted></video>
+        <audio id="inf_audio_preview" class="hidden" controls title="Primary audio preview"></audio>
+        <audio id="inf_audio2_preview" class="hidden" controls title="Secondary audio preview"></audio>
+      </div>
+    </div>
+    <div class="card"><h3>Prompt</h3>
+      <div class="promptRow"><select id="inf_prompt_pick" title="Choose a saved prompt from your prompt library."></select><button onclick="loadPrompt('inf')" title="Load the selected saved prompt into the InfiniteTalk prompt box.">Load</button><button onclick="savePrompt('inf')" title="Save the current InfiniteTalk prompt into the prompt library.">Save current</button></div>
+      <textarea id="inf_prompt" rows="8" title="Main prompt sent to InfiniteTalk.">A person talking naturally</textarea>
+      <textarea id="inf_advanced" rows="4" title="Advanced JSON is merged directly into the InfiniteTalk payload.">{}</textarea>
+    </div>
+  </div>
+  <div class="card ttsInline"><div class="cardTitleRow"><h3>Text to Speech</h3><button type="button" class="secondaryButton" onclick="copyPromptToTts('inf')">Use prompt text</button></div>
+    <div class="ttsGrid">
+      <label>Script<textarea id="inf_tts_text" rows="5" placeholder="Type dialogue to generate an audio track..."></textarea></label>
+      <div class="ttsControls">
+        <label>Engine<select id="inf_tts_engine"><option value="windows_sapi">Windows voices</option><option value="piper">Piper local model</option></select></label>
+        <label>Voice<select id="inf_tts_voice"><option value="">Default voice</option></select></label>
+        <label>Rate<input id="inf_tts_rate" type="number" min="-10" max="10" value="0"></label>
+        <label>Volume<input id="inf_tts_volume" type="number" min="0" max="100" value="100"></label>
+      </div>
+    </div>
+    <div class="ttsActions">
+      <button type="button" onclick="generateTts('inf','inf_audio_path')" class="run">Generate and use as audio</button>
+      <button type="button" onclick="generateTts('inf','inf_audio2_path')">Generate for Audio 2</button>
+      <button type="button" onclick="generateTts('inf','')">Generate only</button>
+      <span id="inf_tts_status" class="trimMeta"></span>
+    </div>
+    <audio id="inf_tts_preview" controls class="hidden"></audio>
+    <input id="inf_tts_output_path" readonly placeholder="Generated TTS path">
+  </div>
+  <div class="card"><h3 title="Trim the reference video, crop it, or limit the number of frames uploaded before sending it to RunPod.">Video Trimmer / Crop / Frame Cap</h3><div class="videoTools" data-prefix="inf"></div></div>
+  <div class="card"><h3 title="Trim InfiniteTalk audio before sending it to RunPod.">Audio Trimmer</h3><div class="audioTools" data-prefix="inf_audio" data-path="inf_audio_path" data-audio="inf_audio_preview" data-label="Primary Audio"></div><div id="inf_audio2_tool" class="audioTools secondaryAudioTool" data-prefix="inf_audio2" data-path="inf_audio2_path" data-audio="inf_audio2_preview" data-label="Audio 2"></div></div>
+  <div class="card"><h3>Settings</h3><div class="fields">
+    <label title="Output width sent to the InfiniteTalk endpoint.">Width<input id="inf_width" type="number" value="512"></label><label title="Output height sent to the InfiniteTalk endpoint.">Height<input id="inf_height" type="number" value="512"></label><label title="Endpoint-level frame cap. This is separate from the input video frame load cap above.">Max Frame<input id="inf_max_frame"></label>
+    <label title="Use the primary audio trim/duration to set InfiniteTalk video length. In video mode this trims the input video; in image mode this sets Max Frame."><input id="inf_sync_to_audio" type="checkbox"> Match video length to audio</label>
+    <label title="Ask the endpoint to offload more aggressively to reduce GPU pressure."><input id="inf_force_offload" type="checkbox" checked> Force Offload</label><label title="Allow the endpoint to use the configured network volume for outputs."><input id="inf_network_volume" type="checkbox" checked> Network Volume Output</label>
+  </div><div class="runBar"><button id="inf_run_button" class="run" onclick="runInfinite()" title="Submit the current InfiniteTalk job to RunPod.">Run InfiniteTalk</button><span id="inf_status" class="trimMeta"></span></div></div>
+  <div class="card outputPanel"><h3>Output Preview</h3><div id="inf_output_empty" class="outputEmpty">Completed InfiniteTalk outputs will appear here.</div><div id="inf_output_grid" class="outputGrid"></div></div>
+</section>
+
+<section id="image_editor" class="tab panel">
+  <div class="card paintEditor">
+    <div class="paintTopbar">
+      <div><h2>Image Editor</h2><div class="trimMeta" id="image_editor_status">Load an image to begin.</div></div>
+      <div class="paintPrimaryActions">
+        <button type="button" class="run" onclick="imageEditorApply()" title="Save the current edit as a new image">Apply</button>
+        <button type="button" onclick="imageEditorClearMarks()" title="Clear crop, lasso, and SAM points">Clear Marks</button>
+        <button type="button" onclick="imageEditorResetView()" title="Reset the editor marks">Reset</button>
+      </div>
+    </div>
+    <div class="paintRibbon">
+      <input id="image_editor_tool" class="hidden" value="crop">
+      <div class="paintToolGroup" aria-label="Tools">
+        <button type="button" class="paintTool active" data-tool="crop" onclick="imageEditorSetTool('crop')" title="Drag a rectangle to crop">Crop</button>
+        <button type="button" class="paintTool" data-tool="lasso_keep" onclick="imageEditorSetTool('lasso_keep')" title="Draw around the area to keep">Keep</button>
+        <button type="button" class="paintTool" data-tool="lasso_remove" onclick="imageEditorSetTool('lasso_remove')" title="Draw around the area to remove">Remove</button>
+        <button type="button" class="paintTool" data-tool="sam_keep" onclick="imageEditorSetTool('sam_keep')" title="Use SAM3 to keep the prompted object">SAM Keep</button>
+        <button type="button" class="paintTool" data-tool="sam_remove" onclick="imageEditorSetTool('sam_remove')" title="Use SAM3 to remove the prompted object">SAM Remove</button>
+      </div>
+      <label title="SAM3 concept prompt. Examples: person, face, shirt, background.">Prompt<input id="image_editor_sam_prompt" placeholder="person / face / object"></label>
+      <label title="Fill used for keep/remove results.">Fill<select id="image_editor_mask_fill"><option value="transparent">Transparent</option><option value="black">Black</option><option value="white">White</option><option value="blur">Blurred source</option></select></label>
+      <label title="Filter or LUT-style look.">Filter<select id="image_editor_filter"><option value="none">None</option><option value="grayscale">Grayscale</option><option value="contrast">Contrast</option><option value="warm">Warm</option><option value="cool">Cool</option><option value="vintage">Vintage</option><option value="sharp">Sharpen</option><option value="blur">Blur</option></select></label>
+      <label title="Filter strength.">Amt<input id="image_editor_filter_amount" type="number" step="0.1" value="1"></label>
+      <label title="Free local upscale.">Scale<select id="image_editor_upscale"><option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option></select></label>
+      <div class="paintToolGroup compact">
+        <button type="button" onclick="imageEditorLoadFromInput('inf_image_path')">Load Inf</button>
+        <button type="button" onclick="imageEditorLoadFromInput('wan_image_path')">Load Wan</button>
+        <button type="button" onclick="imageEditorLoadFromInput('samimate_image_path')">Load SAMi</button>
+        <button type="button" onclick="imageEditorLoadFromInput('sam_source_path')">Load SAM</button>
+      </div>
+      <div class="paintToolGroup compact">
+        <button type="button" onclick="imageEditorSendTo('inf_image_path')">To Inf</button>
+        <button type="button" onclick="imageEditorSendTo('wan_image_path')">To Wan</button>
+        <button type="button" onclick="imageEditorSendTo('wan_mask_path')">To Mask</button>
+        <button type="button" onclick="imageEditorSendTo('samimate_image_path')">To SAMi</button>
+        <button type="button" onclick="imageEditorSendTo('sam_source_path')">To SAM</button>
+      </div>
+    </div>
+    <div class="paintWorkspace">
+      <div class="editorStageWrap">
+        <canvas id="image_editor_canvas" width="1280" height="720"></canvas>
+      </div>
+    </div>
+    <div class="paintStatusbar">
+      <input id="image_editor_source" placeholder="Image path / URL">
+      <input id="image_editor_output" readonly placeholder="Edited output path">
+    </div>
+    <div class="outputPanel"><h3>Output History</h3><div id="image_editor_output_empty" class="outputEmpty">Edited images will appear here.</div><div id="image_editor_output_grid" class="outputGrid"></div></div>
+  </div>
+</section>
+
+<section id="tts" class="tab panel">
+  <h2>Text to Speech</h2>
+  <div class="grid two">
+    <div class="card"><h3>Generate Speech</h3>
+      <label>Script<textarea id="tts_text" rows="12" placeholder="Write dialogue or narration..."></textarea></label>
+      <div class="fields compact">
+        <label>Engine<select id="tts_engine"><option value="windows_sapi">Windows voices</option><option value="piper">Piper local model</option></select></label>
+        <label>Voice<select id="tts_voice"><option value="">Default voice</option></select></label>
+        <label>Rate<input id="tts_rate" type="number" min="-10" max="10" value="0"></label>
+        <label>Volume<input id="tts_volume" type="number" min="0" max="100" value="100"></label>
+      </div>
+      <div class="ttsActions">
+        <button type="button" class="run" onclick="generateTts('tts','')">Generate Speech</button>
+        <button type="button" onclick="copyTtsToInfinite('inf_audio_path')">Use as InfiniteTalk Audio</button>
+        <button type="button" onclick="copyTtsToInfinite('inf_audio2_path')">Use as InfiniteTalk Audio 2</button>
+      </div>
+      <div id="tts_status" class="trimMeta"></div>
+    </div>
+    <div class="card"><h3>Preview</h3>
+      <audio id="tts_preview" controls class="hidden"></audio>
+      <input id="tts_output_path" readonly placeholder="Generated audio path">
+      <p class="hint">Windows voices are built in and free. Piper is the better open-source local option when you configure a Piper executable and voice model in Settings.</p>
+    </div>
+  </div>
+  <div class="card outputPanel"><h3>Output History</h3><div id="tts_output_empty" class="outputEmpty">Generated speech clips will appear here.</div><div id="tts_output_grid" class="outputGrid"></div></div>
+</section>
+
+<section id="wan" class="tab panel">
+  <h2>WanAnimate</h2>
+  <div class="grid two">
+    <div class="card"><h3>Inputs</h3>
+      <div class="drop" data-target="wan_image_path" data-kind="image">Drop input image here<input id="wan_image_path" placeholder="Image path / URL" /></div>
+      <div class="drop" data-target="wan_video_path" data-kind="video">Drop reference video here<input id="wan_video_path" placeholder="Reference video path / URL" /></div>
+      <div class="drop" data-target="wan_mask_path" data-kind="media" title="Main subject-replacement mask. Use SAM's Mask Video here for video replacement: white = the subject/person to replace, black = keep the original background. Use a PNG mask only for still/single-frame workflows.">Drop subject mask image/video here<input id="wan_mask_path" placeholder="Mask image/video path / URL" /></div>
+      <input id="wan_mask_pretrimmed" type="hidden" value="">
+      <div class="drop" data-target="wan_masked_video_path" data-kind="video" title="Optional visual reference only. This is a composited preview/cutout-style video, not the main WanAnimate mask. For person replacement, prefer SAM's Mask Video in the subject mask field above.">Drop optional masked preview video here<input id="wan_masked_video_path" placeholder="Masked preview video path / URL" /></div>
+      <div class="wanPreviewGrid">
+        <div class="wanPreviewSlot"><h4>Reference Image</h4><img id="wan_image_preview" class="mediaPreview hidden" alt="WanAnimate image preview"></div>
+        <div class="wanPreviewSlot"><h4>Reference Video</h4><video id="wan_video_preview" class="mediaPreview hidden" controls muted></video></div>
+      </div>
+      <div class="wanPreviewSlot"><h4>Masked Video</h4><video id="wan_masked_video_preview" class="mediaPreview hidden" controls muted></video></div>
+      <div class="wanPreviewSlot"><h4>Aligned Mask Preview</h4><video id="wan_aligned_mask_preview" class="mediaPreview hidden" controls muted></video><img id="wan_aligned_mask_image_preview" class="mediaPreview hidden" alt="Aligned Wan mask preview"><input id="wan_aligned_mask_path" readonly placeholder="Aligned mask preview path"></div>
+    </div>
+    <div class="card"><h3>Prompt</h3>
+      <div class="promptRow"><select id="wan_prompt_pick"></select><button onclick="loadPrompt('wan')">Load</button><button onclick="savePrompt('wan')">Save current</button></div>
+      <textarea id="wan_prompt" rows="6"></textarea><textarea id="wan_negative_prompt" rows="3">blurry, low quality, distorted</textarea><textarea id="wan_advanced" rows="3">{}</textarea>
+    </div>
+  </div>
+  <div class="card"><div class="cardTitleRow"><h3>Video Trimmer / Crop / Frame Cap</h3><div class="logActions"><button type="button" onclick="previewAlignedWanMask()" title="Preprocess the current subject mask with the same trim, crop, frame cap, output size, and duration that WanAnimate will use.">Preview aligned mask</button></div></div><div class="videoTools" data-prefix="wan"></div><p class="hint">WanAnimate submit uses the input video trim as the source of truth, then trims/crops/resizes and pads or trims the subject mask to match that processed video.</p></div>
+  <div class="card"><div class="cardTitleRow"><h3>Control Points</h3><button type="button" class="secondaryButton" onclick="togglePointsEditor()">Hide editor</button></div>
+    <label title="Enable control points and send points_store / coordinates / neg_coordinates in the WanAnimate payload."><input id="wan_control_points" type="checkbox"> Enable control points</label>
+    <div id="points_editor_body">
+    <p class="hint">Click video = positive point. Right-click or Shift-click = negative point. The preview follows the trim start time.</p>
+    <canvas id="points_canvas" width="900" height="420"></canvas>
+    <div class="pointActions">
+      <button onclick="applyPointsToPayload()">Add points to payload</button>
+      <button onclick="loadPayloadToPoints()">Load payload into editor</button>
+      <button onclick="undoPoint()">Undo point</button>
+      <button onclick="clearPoints()">Clear editor</button>
+      <button onclick="clearPointPayload()">Clear payload</button>
+      <span id="points_status"></span>
+    </div>
+    </div>
+    <details class="payloadDetails" open>
+      <summary>Point payload fields sent to RunPod</summary>
+      <p class="hint">These mirror the old app's points_store / coordinates / neg_coordinates fields. Use “Add points to payload” after editing points.</p>
+      <label>points_store<textarea id="wan_points_store" rows="4" placeholder='{"positive":[...],"negative":[...]}'></textarea></label>
+      <label>coordinates<textarea id="wan_coordinates" rows="3" placeholder='[{"x":123,"y":456}]'></textarea></label>
+      <label>neg_coordinates<textarea id="wan_neg_coordinates" rows="3" placeholder='[{"x":0,"y":0}]'></textarea></label>
+    </details>
+  </div>
+  <div class="card"><h3>Settings</h3><div class="fields">
+    <label title="WanAnimate workflow mode. If point workflow keeps failing, test animate once too.">Mode<select id="wan_mode"><option value="replace">replace</option><option value="animate">animate</option></select></label><label title="Override only WanAnimate delivery. Base64 is best for diagnosing /runpod-volume path issues.">Wan Delivery<select id="wan_delivery_override"><option value="auto">Auto / desktop behavior</option><option value="global">Use global delivery</option><option value="base64">Base64 / direct upload</option><option value="runpod_volume_path">RunPod Volume Path</option><option value="s3_url">S3 URL</option></select></label><label title="0 uses the loaded input video width. Final value is rounded down to a multiple of 16 for WanAnimate.">Width<input id="wan_width" type="number" value="0"></label><label title="0 uses the loaded input video height. Final value is rounded down to a multiple of 16 for WanAnimate.">Height<input id="wan_height" type="number" value="0"></label><label title="Seed must be 0 or greater. -1 is invalid on this endpoint, so use Random Seed instead.">Seed<div class="inlineField"><input id="wan_seed" type="number" value="12345"><button type="button" onclick="randomWanSeed()" title="Generate a valid random seed">🎲</button></div></label><label title="Output / forced frame rate sent to WanAnimate.">FPS<input id="wan_fps" type="number" value="16"></label><label>CFG<input id="wan_cfg" value="1.0"></label><label>Steps<input id="wan_steps" type="number" value="6"></label>
+    <label title="Send pose_estimation=true to the WanAnimate endpoint so the workflow can derive body/pose guidance from the reference media."><input id="wan_pose" type="checkbox" checked> Use pose guidance</label><label title="Send face_detection=true to the WanAnimate endpoint so the workflow can locate and preserve face regions when supported by the backend."><input id="wan_face" type="checkbox" checked> Detect faces</label><label title="Send mask_editing=true to the WanAnimate endpoint. Enable this when providing a mask and using a workflow that edits only the masked region."><input id="wan_mask_edit" type="checkbox"> Use mask edit mode</label><label title="Send network_volume=true to the WanAnimate endpoint so outputs are written to the endpoint's network volume when that workflow supports it."><input id="wan_network_volume" type="checkbox" checked> Save output to network volume</label>
+  </div><div class="runBar"><button id="wan_run_button" class="run" onclick="runWan()">Run WanAnimate</button><span id="wan_status" class="trimMeta"></span></div></div>
+  <div class="card outputPanel"><h3>Output Preview</h3><div id="wan_output_empty" class="outputEmpty">Completed WanAnimate outputs will appear here.</div><div id="wan_output_grid" class="outputGrid"></div></div>
+</section>
+
+<section id="h3" class="tab panel">
+  <div class="h3PageHeader">
+    <div><h2>MiniMax H3</h2><p class="hint">Uses the dedicated <strong>minimax-h3-runpod</strong> endpoint. Open only the sections you need; your choices are remembered.</p></div>
+    <div class="h3ComfyLauncher">
+      <div><strong>H3 ComfyUI</strong><span id="h3_comfyui_status">Checking Pod…</span></div>
+      <select id="h3_comfyui_gpu" title="GPU used only if the app needs to create a new H3 ComfyUI Pod."><option value="NVIDIA GeForce RTX 5090">RTX 5090</option><option value="NVIDIA GeForce RTX 4090">RTX 4090</option></select>
+      <button id="h3_comfyui_launch" type="button" onclick="launchH3ComfyUI()">Start / Create</button>
+      <button id="h3_comfyui_open" type="button" class="secondaryButton" onclick="openH3ComfyUI()" disabled>Open</button>
+      <button id="h3_comfyui_stop" type="button" class="secondaryButton" onclick="stopH3ComfyUI()" disabled>Stop</button>
+    </div>
+  </div>
+
+  <details class="card h3Section h3PromptSection" data-h3-section="prompt" open>
+    <summary><span><strong>Prompt &amp; Run</strong><small>Write, recall, and submit</small></span><span class="h3SectionChevron" aria-hidden="true">⌄</span></summary>
+    <div class="h3SectionBody">
+      <div class="h3PromptTop">
+        <div class="h3BookBar">
+          <label>Prompt Book<select id="h3_prompt_pick"><option value="">No saved prompts yet</option></select></label>
+          <button type="button" onclick="loadPrompt('h3')">Recall</button>
+          <button type="button" onclick="savePrompt('h3')">Save current</button>
+          <button type="button" class="secondaryButton" onclick="deletePrompt('h3')">Delete</button>
+        </div>
+      </div>
+      <div class="h3PromptComposer"><textarea id="h3_prompt" rows="12" title="Full MiniMax H3 prompt. Enabled subject definitions are inserted at the top automatically.">A cinematic shot with natural, stable motion.</textarea><div class="h3RunTop"><button id="h3_run_button" class="run h3PrimaryRun" onclick="runH3()">Run MiniMax H3</button><span id="h3_status" class="trimMeta"></span></div></div>
+      <div id="h3_subject_prompt_status" class="h3SubjectPromptStatus">No Subject Book definitions enabled.</div>
+      <details class="h3InlineDetails"><summary>Advanced prompt overrides</summary><label title="Advanced object merged into the H3 request after the visible controls.">Advanced JSON<textarea id="h3_advanced" rows="4">{}</textarea></label></details>
+    </div>
+  </details>
+
+  <details class="card h3Section" data-h3-section="inputs" open>
+    <summary><span><strong>Inputs &amp; Subjects</strong><small>Frames, references, previews, and Subject Book</small></span><span class="h3SectionChevron" aria-hidden="true">⌄</span></summary>
+    <div class="h3SectionBody">
+      <div class="cardTitleRow h3InputControls"><label>Task<select id="h3_task" onchange="updateH3TaskUI()"><option value="t2v">Text to Video + Audio</option><option value="fl2v">FL2VA — first/last frame</option><option value="r2v">R2VA — mixed references</option></select></label><button id="h3_preview_toggle" type="button" class="secondaryButton" onclick="toggleH3InputPreviews()">Hide previews</button></div>
+      <div id="h3_fl2v_inputs">
+        <p class="hint">FL2VA uses the same card-style workspace as References. Drop an image anywhere on either card, or browse. Add the required starting image and, optionally, an ending image.</p>
+        <div class="h3ReferenceGrid h3FrameGrid">
+          <article class="h3ReferenceCard"><div class="h3ReferenceTitle"><strong>&lt;Image 1&gt;</strong><span class="h3MediaBadge">Required</span></div><div class="inlineField"><input id="h3_first_frame_path" placeholder="First-frame image path / HTTPS URL"><button type="button" onclick="openNativePicker('h3_first_frame_path','image')">Browse</button><button type="button" class="secondaryButton" onclick="clearPathInput('h3_first_frame_path')">Clear</button></div><div class="h3ReferencePreview h3PreviewArea"><div class="h3PreviewEmpty">Drop an image here</div><img id="h3_first_frame_preview" class="mediaPreview hidden" alt="H3 first-frame preview"></div></article>
+          <article class="h3ReferenceCard"><div class="h3ReferenceTitle"><strong>&lt;Image 2&gt;</strong><span class="h3MediaBadge">Optional ending frame</span></div><div class="inlineField"><input id="h3_last_frame_path" placeholder="Last-frame image path / HTTPS URL"><button type="button" onclick="openNativePicker('h3_last_frame_path','image')">Browse</button><button type="button" class="secondaryButton" onclick="clearPathInput('h3_last_frame_path')">Clear</button></div><div class="h3ReferencePreview h3PreviewArea"><div class="h3PreviewEmpty">Drop an image here</div><img id="h3_last_frame_preview" class="mediaPreview hidden" alt="H3 last-frame preview"></div></article>
+        </div>
+      </div>
+      <div id="h3_r2v_inputs" class="hidden">
+        <div class="h3SubjectBookBar"><div><strong>Subject Book</strong><p class="hint">Recall a reusable description on any picture. Set the Subject tag to reuse or replace an existing prompt definition, for example <code>1</code>, <code>Subject 1</code>, or <code>Cartman</code>.</p></div><label>Saved preset<select id="h3_subject_book_pick"><option value="">No saved subjects yet</option></select></label><button type="button" onclick="applyH3SubjectBookToFirstAvailable()">Use on next picture</button><button type="button" class="secondaryButton" onclick="deleteH3SubjectPreset()">Delete preset</button></div>
+        <h4>Image references <span class="h3Limit">up to 9</span></h4>
+        <p class="hint">Picture labels are assigned automatically in the order the non-empty references are sent. Turn on “Use as Subject” only when an image represents reusable content rather than a concrete frame anchor.</p>
+        <div id="h3_reference_grid" class="h3ReferenceGrid"></div>
+        <h4>Video references <span class="h3Limit">up to 3</span></h4>
+        <p class="hint">Video labels are assigned automatically. Each video can also contribute its embedded soundtrack as the matching video-audio reference.</p>
+        <div id="h3_reference_video_grid" class="h3ReferenceGrid"></div>
+        <h4>Audio references <span class="h3Limit">up to 3</span></h4>
+        <p class="hint">Standalone clips are labeled <code>&lt;Audio 1&gt;</code>, <code>&lt;Audio 2&gt;</code>, and so on in the order supplied.</p>
+        <div id="h3_reference_audio_grid" class="h3ReferenceGrid"></div>
+        <label title="Route the first supplied standalone audio reference into the generated video's output audio."><input id="h3_use_reference_audio" type="checkbox"> Use first standalone audio reference as output</label>
+      </div>
+    </div>
+  </details>
+
+  <details class="card h3Section" data-h3-section="loras">
+    <summary><span><strong>LoRAs</strong><small>Upload, import, and control strengths</small></span><span class="h3SectionChevron" aria-hidden="true">⌄</span></summary>
+    <div class="h3SectionBody">
+      <div class="h3LoraPanel">
+        <div class="cardTitleRow"><h4>H3 LoRA Library</h4><button type="button" onclick="loadH3LoraLibrary()">Refresh library</button></div>
+        <p class="hint">LoRAs are uploaded to the H3 volume at <code>/runpod-volume/models/loras/H3</code>. Existing files are never overwritten without confirmation.</p>
+        <div class="h3LoraUploadGrid">
+          <div class="h3LoraSource">
+            <label>Local .safetensors file<input id="h3_lora_file" type="file" accept=".safetensors,application/octet-stream"></label>
+            <button id="h3_lora_upload_button" type="button" onclick="uploadH3Lora()">Upload local LoRA</button>
+          </div>
+          <div class="h3LoraSource">
+            <label>Remote download URL<input id="h3_lora_remote_url" type="url" placeholder="https://huggingface.co/.../model.safetensors"></label>
+            <label>Filename if URL does not include one<input id="h3_lora_remote_name" placeholder="optional-name.safetensors"></label>
+            <button id="h3_lora_import_button" type="button" onclick="importH3Lora()">Import remote LoRA</button>
+          </div>
+        </div>
+        <div class="h3LoraPicker">
+          <label>Available LoRA<select id="h3_lora_library_select"><option value="">Refresh to load H3 volume...</option></select></label>
+          <label>Strength<input id="h3_lora_strength" type="number" min="0" max="2" step="0.05" value="1"></label>
+          <button type="button" onclick="addH3LoraToWorkflow()">Add to workflow</button>
+        </div>
+        <div id="h3_lora_active" class="h3LoraActive"><span class="loraEmpty">No active H3 LoRAs</span></div>
+        <progress id="h3_lora_progress" class="h3LoraProgress hidden" max="100" value="0"></progress>
+        <div id="h3_lora_status" class="trimMeta">Library not loaded yet.</div>
+        <details><summary>Advanced: raw LoRA JSON</summary><textarea id="h3_loras" rows="4" oninput="renderH3LoraActive()">[]</textarea></details>
+      </div>
+    </div>
+  </details>
+
+  <details class="card h3Section" data-h3-section="models">
+    <summary><span><strong>Models &amp; Turbo</strong><small>Checkpoint, encoders, VAEs, and sampling preset</small></span><span class="h3SectionChevron" aria-hidden="true">⌄</span></summary>
+    <div class="h3SectionBody">
+    <p class="hint">These dropdowns are populated from the H3 network volume. Ref2V automatically uses the Ref2VA model; FL2V uses the FL2VA model.</p>
+    <div class="fields wide">
+      <label title="Main diffusion checkpoint in models/diffusion_models used for first/last-frame generation.">FL2VA Main Model<select id="h3_fl2va_model"><option value="minimax_h3_fl2va_pruned_int8_convrot.safetensors">minimax_h3_fl2va_pruned_int8_convrot.safetensors</option></select></label>
+      <label title="Main diffusion checkpoint in models/diffusion_models used for reference-to-video generation.">Ref2VA Main Model<select id="h3_ref2va_model"><option value="minimax_h3_ref2va_pruned_int8_convrot.safetensors">minimax_h3_ref2va_pruned_int8_convrot.safetensors</option></select></label>
+      <label title="Qwen text encoder / CLIP in models/text_encoders on the H3 volume.">Text Encoder / CLIP<select id="h3_text_encoder"><option value="qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors">qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors</option></select></label>
+      <label title="Video decoder VAE in models/vae on the H3 volume.">Video VAE<select id="h3_video_vae"><option value="minimax_h3_video_vae_fp16.safetensors">minimax_h3_video_vae_fp16.safetensors</option></select></label>
+      <label title="Audio decoder VAE in models/vae on the H3 volume.">Audio VAE<select id="h3_audio_vae"><option value="minimax_h3_audio_vae_fp32.safetensors">minimax_h3_audio_vae_fp32.safetensors</option></select></label>
+      <label title="Quickly configure the stock Turbo workflow or either setting recommended by the 10Eros model author.">Sampling Preset<select id="h3_sampling_preset" onchange="applyH3SamplingPreset(this.value)"><option value="pdd8">PDD quality / speed - 8 steps (converted LoRA)</option><option value="stock_turbo">Stock H3 Turbo LoRA</option><option value="10eros_multires">10Eros Turbo — Multires</option><option value="10eros_er_sde">10Eros Turbo — ER-SDE</option><option value="custom">Custom (not baseline-tested)</option></select></label>
+      <label title="Apply the endpoint's separate H3 Turbo LoRA. Leave this off for checkpoints that already have Turbo merged into them."><input id="h3_turbo_enabled" type="checkbox" checked> Apply separate Turbo LoRA</label>
+      <label>Turbo LoRA family<select id="h3_turbo_family" onchange="selectH3TurboFamily(this.value)"><option value="auto">Auto from selected file</option><option value="larry">Larry Turbo</option><option value="lightx2v">LightX2V Turbo (task matched)</option></select></label>
+      <label title="Turbo LoRA under models/loras/H3. The console adds the required H3/ worker prefix.">Turbo LoRA<select id="h3_turbo_lora"><option value="minimax_h3_turbo_v4_step600_ema.safetensors">minimax_h3_turbo_v4_step600_ema.safetensors</option></select></label>
+      <label title="Turbo LoRA strength sent to the worker.">Turbo Strength<input id="h3_turbo_strength" type="number" min="0" max="2" step="0.05" value="1"></label>
+    </div>
+    <div class="runBar"><button type="button" onclick="loadH3ModelLibrary(false)">Refresh model dropdowns</button><span id="h3_model_status" class="trimMeta">Model library not loaded yet.</span></div>
+    <div class="h3BaselineBar"><p id="h3_turbo_notice" class="hint">Stock Turbo: separate Turbo LoRA, dedicated sampler, simple scheduler, 6 steps.</p><button type="button" class="secondaryButton" onclick="applyH3CleanBaseline()">Apply sampling preset (keep LoRAs)</button></div>
+    <p id="h3_quality_notice" class="h3QualityNotice"></p>
+    </div>
+  </details>
+
+  <details class="card h3Section" data-h3-section="generation" open>
+    <summary><span><strong>Generation Settings</strong><small>Duration, resolution, seed, sampler, and output name</small></span><span class="h3SectionChevron" aria-hidden="true">⌄</span></summary>
+    <div class="h3SectionBody"><div class="fields">
+    <label title="Auto budgets all references together: small requests use Base64, while larger requests use mounted H3 network-volume paths to stay below RunPod's 10 MiB limit.">Input Delivery<select id="h3_delivery"><option value="auto">Auto (size-safe)</option><option value="base64">Base64 / direct</option><option value="volume_path">H3 Network Volume</option></select></label>
+    <label title="Video duration from 1 to 15 seconds.">Duration Seconds<input id="h3_duration" type="number" min="1" max="15" step="0.5" value="2"></label>
+    <label title="Target frame area in megapixels, from 0.2 to 2.0.">Megapixels<input id="h3_megapixels" type="number" min="0.2" max="2" step="0.1" value="0.2"></label>
+    <label title="Any positive whole number. Training step counts are recommendations, not limits.">Steps<input id="h3_steps" type="number" min="1" step="1" value="6"></label>
+    <label title="Used when Random Seed is off. Entering a negative value is also treated as random for compatibility.">Seed<input id="h3_seed" type="number" min="0" max="9007199254740991" value="123456789"></label>
+    <label title="Generate a fresh valid seed for every submission. The actual seed is recorded in the job metadata for reproducibility."><input id="h3_seed_random" type="checkbox"> Random Seed each run</label>
+    <label title="Multires is ComfyUI's res_multistep sampler. The dedicated H3 Turbo sampler requires the separate Turbo LoRA.">Sampler<select id="h3_sampler"><option value="h3_turbo">H3 Turbo (dedicated)</option><option value="res_multistep">Multires / RES Multistep</option><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="euler_ancestral">Euler Ancestral</option><option value="dpmpp_2m">DPM++ 2M</option><option value="dpmpp_2m_sde">DPM++ 2M SDE</option><option value="dpmpp_3m_sde">DPM++ 3M SDE</option><option value="deis">DEIS</option><option value="uni_pc">UniPC</option></select></label>
+    <label title="Sigma schedule used by BasicScheduler.">Scheduler<select id="h3_scheduler"><option value="simple">Simple</option><option value="beta">Beta</option><option value="normal">Normal</option><option value="sgm_uniform">SGM Uniform</option><option value="karras">Karras</option><option value="exponential">Exponential</option><option value="ddim_uniform">DDIM Uniform</option><option value="linear_quadratic">Linear Quadratic</option><option value="kl_optimal">KL Optimal</option></select></label>
+    <label title="Bypass FirstBlockCache completely when disabled. Keep it off for the clean quality baseline and for reference-to-video diagnosis."><input id="h3_cache_enabled" type="checkbox"> Enable FirstBlockCache</label>
+    <label title="FirstBlockCache threshold from 0 to 1; 0.18 is the tested default.">Cache Threshold<input id="h3_cache_threshold" type="number" min="0" max="1" step="0.01" value="0.18"></label>
+    <label title="Auto selects SageAttention on the RTX 5090 and falls back to native only when Sage is unavailable.">Attention patch<select id="h3_attention"><option value="auto">Auto (Sage on 5090)</option><option value="sage">Force Sage</option><option value="native">Native (no patch)</option><option value="sol-attn">Sol-Attn (training-free, experimental)</option><option value="sla">SLA (trained weights required)</option><option value="vsa">VSA (FastH3 weights required)</option></select></label>
+    <details><summary>Sparse attention controls</summary>
+      <p class="hint">Opt-in acceleration for long sequences. Short sequences and unsupported GPUs stay dense. SLA needs matching distilled weights/LoRA; VSA needs FastH3 weights. Use the model and LoRA selectors. The supported acceleration weights are installed in the H3 volume. Keep FirstBlockCache off when comparing quality.</p>
+      <div class="fields"><label>Key blocks kept (%)<input id="h3_sparse_keep_percent" type="number" min="0.5" max="95" step="0.5" value="10"></label><label>Sol-Attn threshold<input id="h3_sparse_tau" type="number" min="0" max="4" step="0.05" value="1.3"></label><label>Sparse start (0-1)<input id="h3_sparse_start_percent" type="number" min="0" max="1" step="0.05" value="0.2"></label><label>Sparse end (0-1)<input id="h3_sparse_end_percent" type="number" min="0" max="1" step="0.05" value="1"></label></div>
+      <label><input id="h3_sparse_trained_weights" type="checkbox">Selected weights/LoRA match the SLA or VSA method</label>
+    </details>
+    <label title="Resolution Selector aspect-ratio presets supported by the H3 workflow.">Aspect Ratio<select id="h3_aspect_ratio" onchange="updateH3AspectRatioUI()"><option value="1:1 (Square)">1:1 — Square</option><option value="2:3 (Portrait Photo)">2:3 — Portrait Photo</option><option value="3:2 (Photo)">3:2 — Photo</option><option value="3:4 (Portrait Standard)">3:4 — Portrait Standard</option><option value="4:3 (Standard)">4:3 — Standard</option><option value="9:16 (Portrait Widescreen)">9:16 — Vertical / Portrait Widescreen</option><option value="16:9 (Widescreen)" selected>16:9 — Widescreen</option><option value="21:9 (Ultrawide)">21:9 — Ultrawide</option><option value="custom">Custom...</option></select><input id="h3_aspect_ratio_custom" class="hidden" placeholder="Custom worker value"></label>
+    <label>Filename Prefix<input id="h3_filename_prefix" value="RunPod_Media_Console_H3"></label>
+    </div></div>
+  </details>
+
+  <details class="card h3Section outputPanel" data-h3-section="output" open>
+    <summary><span><strong>Latest Output Preview</strong><small>Only the most recent H3 result</small></span><span class="h3SectionChevron" aria-hidden="true">⌄</span></summary>
+    <div class="h3SectionBody"><div id="h3_output_empty" class="outputEmpty">The latest completed MiniMax H3 output will appear here.</div><div id="h3_output_grid" class="outputGrid"></div></div>
+  </details>
+</section>
+
+<section id="model_manager" class="tab panel">
+  <h2>H3 Model Manager</h2>
+  <p class="hint">Download model files directly from Hugging Face, Civitai, or another public HTTPS URL into the H3 network volume. Transfers stream straight into the bucket, so large checkpoints do not fill this computer's disk.</p>
+  <div class="grid two">
+    <div class="card"><h3>Remote Download</h3>
+      <label title="Hugging Face file/blob URL, Civitai model/version/download URL, or another direct public HTTPS file URL.">Model URL<input id="model_download_url" type="url" placeholder="https://huggingface.co/org/repo/blob/main/model.safetensors"></label>
+      <div class="fields">
+        <label>Destination<select id="model_download_category" onchange="refreshModelManagerFiles()">
+          <option value="diffusion_models">Diffusion Models</option><option value="checkpoints">Checkpoints</option><option value="text_encoders">Text Encoders / CLIP</option><option value="clip">CLIP</option><option value="clip_vision">CLIP Vision</option><option value="vae">VAE</option><option value="loras">H3 LoRAs</option><option value="controlnet">ControlNet</option><option value="embeddings">Embeddings</option><option value="upscale_models">Upscale Models</option>
+        </select></label>
+        <label title="Optional. Leave blank to use the provider filename.">Filename override<input id="model_download_name" placeholder="optional-name.safetensors"></label>
+        <label title="Replace an object with the same destination key."><input id="model_download_overwrite" type="checkbox"> Overwrite existing file</label>
+      </div>
+      <details><summary>Provider access tokens</summary>
+        <p class="hint">Tokens are stored with the console settings and are sent only to their matching provider. A Hugging Face read token is needed for gated/private files; a Civitai API token is needed for restricted downloads.</p>
+        <label>Hugging Face token<input id="model_hf_token" type="password" autocomplete="off" placeholder="hf_..."></label>
+        <label>Civitai API token<input id="model_civitai_token" type="password" autocomplete="off" placeholder="API token"></label>
+        <button type="button" onclick="saveSettings()">Save tokens</button>
+      </details>
+      <div class="runBar"><button id="model_download_button" class="run" type="button" onclick="startModelDownload()">Download to H3 Volume</button><span id="model_download_status" class="trimMeta">Ready.</span></div>
+      <progress id="model_download_progress" class="h3LoraProgress hidden" max="100" value="0"></progress>
+      <pre id="model_download_details" class="validationList">No active download.</pre>
+    </div>
+    <div class="card"><div class="cardTitleRow"><h3>Installed Files</h3><button type="button" onclick="refreshModelManagerFiles(false)">Refresh</button></div>
+      <p id="model_manager_destination" class="hint"></p>
+      <div id="model_manager_files" class="modelManagerFiles"><span class="loraEmpty">Choose a destination to browse its files.</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="samimate" class="tab panel">
+  <h2>SAMimate</h2>
+  <div class="grid two">
+    <div class="card"><h3>Inputs</h3>
+      <p class="hint">Runs SAM3 on the trimmed source, generates a replacement pass with WanAnimate or MiniMax H3, then overlays the original unmasked background back onto the returned video.</p>
+      <div class="drop" data-target="samimate_video_path" data-kind="video" title="Source video to segment and composite. Set 0 in Mask Frame Cap to process the full video.">Drop source video here<input id="samimate_video_path" placeholder="Source video path / URL"></div>
+      <div class="drop" data-target="samimate_image_path" data-kind="image" title="Primary identity and outfit reference for the replacement person.">Drop reference image here<input id="samimate_image_path" placeholder="Reference image path / URL"></div>
+      <details class="samimateH3Only"><summary>Additional identity views (up to 9 images total)</summary><p class="hint">Use views of the same replacement person. The first image defines the primary appearance and outfit; additional images clarify identity.</p><div id="samimate_extra_references" class="grid two"></div></details>
+      <div class="samimatePreviewGrid">
+        <div class="wanPreviewSlot"><h4>Source Video</h4><video id="samimate_video_preview" class="mediaPreview hidden" controls muted></video></div>
+        <div class="wanPreviewSlot"><h4>Reference Image</h4><img id="samimate_image_preview" class="mediaPreview hidden" alt="SAMimate reference image preview"></div>
+      </div>
+    </div>
+    <div class="card"><h3>Prompt</h3>
+      <label title="What SAM3 should mask and replace. For person replacement, keep this simple: person, woman, man, face, mouth, body, subject.">Mask Target to Replace<input id="samimate_subject_prompt" value="person"></label>
+      <label title="Optional replacement details. H3 builds a fresh structured prompt automatically for all identity images.">Replacement Instructions<textarea id="samimate_prompt" rows="6" placeholder="Optional appearance details. H3 automatically builds the identity, lighting, motion, and preservation prompt from your references and mask target."></textarea></label>
+      <details class="samimateH3Only"><summary>Automatic H3 prompt</summary><button type="button" onclick="samimatePreviewPrompt()">Preview automatic prompt</button><pre id="samimate_auto_prompt" style="white-space:pre-wrap">Rebuilt automatically at submission from the current identity views and replacement instructions.</pre></details>
+      <label class="samimateWanOnly" title="Negative prompt sent to WanAnimate.">Negative Prompt<textarea id="samimate_negative_prompt" rows="3">blurry, low quality, distorted</textarea></label>
+      <label class="samimateWanOnly" title="Advanced JSON merged into the WanAnimate payload.">Advanced JSON<textarea id="samimate_advanced" rows="3">{}</textarea></label>
+    </div>
+  </div>
+  <div class="card"><h3>Video Trimmer / Crop / Frame Cap</h3><div class="videoTools" data-prefix="samimate"></div></div>
+  <div class="card"><h3 id="samimate_options_title">WanAnimate Options</h3>
+    <p id="samimate_backend_hint" class="hint">WanAnimate receives the SAM subject mask as its edit area, then the original background is composited back.</p>
+    <div class="fields">
+      <label title="Choose which endpoint generates the replacement video after SAM3 segmentation.">Generation Backend<select id="samimate_generation_backend" onchange="updateSamimateBackendUI();persistSettingsSoon()"><option value="wan">WanAnimate</option><option value="h3">MiniMax H3</option></select></label>
+      <label title="Maximum frames SAM3 and SAMimate's WanAnimate pass should process. 0 means full selected trim window. If a frame cap makes the generated SAM mask shorter than the selected trim, the app pads/conforms the mask to the processed video length before Wan and composite.">Mask Frame Cap<input id="samimate_frame_cap" type="number" min="0" value="0"></label>
+      <label class="samimateWanOnly" title="WanAnimate workflow mode. Replace is the normal subject replacement workflow.">Mode<select id="samimate_mode"><option value="replace">replace</option><option value="animate">animate</option></select></label>
+      <label class="samimateWanOnly" title="SAMimate sends multiple media files, so Auto follows the global delivery setting and should normally use RunPod Volume Path to avoid RunPod's 10MiB request-body limit.">Wan Delivery<select id="samimate_delivery_override"><option value="auto">Auto / use global</option><option value="global">Use global delivery</option><option value="base64">Base64 / direct upload</option><option value="runpod_volume_path">RunPod Volume Path</option><option value="s3_url">S3 URL</option></select></label>
+      <label title="Defaults to the loaded source video width. You can override it after loading.">Width<input id="samimate_width" type="number" value="832"></label>
+      <label title="Defaults to the loaded source video height. You can override it after loading.">Height<input id="samimate_height" type="number" value="480"></label>
+      <label title="Seed sent to WanAnimate.">Seed<input id="samimate_seed" type="number" value="12345"></label>
+      <label title="Defaults to the loaded source video frame rate. You can override it after loading.">FPS<input id="samimate_fps" type="number" value="16"></label>
+      <label class="samimateWanOnly" title="Classifier-free guidance value sent to WanAnimate.">CFG<input id="samimate_cfg" value="1.0"></label>
+      <label class="samimateWanOnly" title="Inference steps sent to WanAnimate.">Steps<input id="samimate_steps" type="number" value="6"></label>
+      <label class="samimateWanOnly" title="Send pose_estimation=true to WanAnimate."><input id="samimate_pose" type="checkbox" checked> Use pose guidance</label>
+      <label class="samimateWanOnly" title="Send face_detection=true to WanAnimate."><input id="samimate_face" type="checkbox" checked> Detect faces</label>
+      <label title="Required for SAMimate: WanAnimate edits the white subject mask, then the app composites the original unmasked background back over the result."><input id="samimate_mask_edit" type="checkbox" checked disabled> Masked subject replacement</label>
+      <label title="Save endpoint output to the RunPod network volume when supported."><input id="samimate_network_volume" type="checkbox" checked> Save output to network volume</label>
+      <label class="samimateWanOnly" title="Also include the current WanAnimate point payload if you prepared control points in the Wan tab."><input id="samimate_use_wan_points" type="checkbox"> Include Wan control points</label>
+    </div>
+    <div class="samActions"><button type="button" onclick="copyWanToSamimate()">Copy current Wan settings</button><button id="samimate_run_button" class="run" onclick="runSamimate()">Run SAMimate</button><span id="samimate_status"></span></div>
+  </div>
+  <div class="card outputPanel"><h3>Output Preview</h3><div id="samimate_output_empty" class="outputEmpty">Completed SAMimate composite will appear here.</div><div id="samimate_output_grid" class="outputGrid"></div></div>
+</section>
+
+
+<section id="sam" class="tab panel samPanel">
+  <h2>SAM Studio</h2>
+  <div class="grid two">
+    <div class="card"><h3>Source / Prompt</h3>
+      <div class="drop" data-target="sam_source_path" data-kind="media" title="Drop an image or video here. SAM Studio runs locally before sending to RunPod.">Drop image/video here<input id="sam_source_path" placeholder="Image or video path" /></div>
+      <div class="fields">
+        <label title="Use image/video automatically, or force a type.">Source Type<select id="sam_source_type"><option value="auto">Auto</option><option value="image">Image</option><option value="video">Video</option></select></label>
+        <label title="For videos, extract this timestamp for the mask preview.">Frame Time<input id="sam_frame_time" placeholder="0"></label>
+        <label title="Trim start time in seconds for SAM video sources. Imports from WanAnimate and InfiniteTalk copy their current trim start here.">Video Start<input id="sam_video_start" placeholder="0"></label>
+        <label title="Trim end time in seconds for SAM video sources. Leave blank for full remaining video. Imports from WanAnimate and InfiniteTalk copy their current trim end here.">Video End<input id="sam_video_end" placeholder="full"></label>
+        <label title="Local SAM3 runs Meta SAM3 through the configured Python. Shape Test is only a fallback preview.">Backend<select id="sam_backend"><option value="local_sam3">Local SAM3</option><option value="external_sam3">External SAM3 runner</option><option value="local_test">Shape Test / not SAM3</option></select></label>
+        <label title="Video mask outputs are always generated for SAM video sources."><input id="sam_make_masked_video" type="checkbox" checked disabled> Make video mask outputs</label>
+        <label title="Maximum masked-video frames to process locally. Set 0 to process the full video length; use a smaller number for quick tests.">Masked Video Cap<input id="sam_video_frame_cap" type="number" min="0" value="180"></label>
+      </div>
+      <div id="sam_backend_notice" class="samNotice">Local SAM3 runs Meta SAM3 in the configured Python environment.</div>
+      <label title="Python executable for your SAM3 environment. It must have facebookresearch/sam3, PyTorch CUDA, and Hugging Face SAM3 checkpoint access.">SAM3 Python<input id="sam3_python" placeholder="D:\path\to\sam3\python.exe"></label>
+      <label title="External runner command template. Use {input_json} and {output_json}. Must point to a real SAM3 runner, not the bundled template.">External SAM3 Command<input id="sam_external_command" placeholder="python real_sam3_runner.py --input {input_json} --output {output_json}"></label>
+      <div class="fields">
+        <label title="Text/points/box routing.">Prompt Mode<select id="sam_prompt_mode"><option value="text">Text</option><option value="points">Points</option><option value="box">Box</option><option value="text_points">Text + Points</option><option value="text_box">Text + Box</option><option value="all">Text + Points + Box</option></select></label>
+        <label title="Text concept prompt. Examples: person, face, dog, car, left hand.">Text Prompt<input id="sam_text_prompt" placeholder="person / face / car / object"></label>
+        <label title="Only affects the visual Masked Preview Video. It does not change the WanAnimate Mask Video, which stays white edit area on black preserved area.">Preview Fill<select id="sam_mask_fill"><option value="black">Black</option><option value="white">White</option></select></label>
+        <label title="Default is off: the selected subject is white/editable. Turn on only when you want the background edited instead."><input id="sam_invert" type="checkbox"> Invert: edit background</label>
+      </div>
+      <div class="samActions"><button onclick="samUseWanImage()">Use Wan Image</button><button onclick="samUseWanVideo()">Use Wan Video</button><button onclick="samUseInfiniteInput()">Use Infinite Input</button><button onclick="samLoadFrame()">Load Preview Frame</button><button id="sam_run_button" onclick="samRun()" class="run">Run Mask</button></div>
+    </div>
+    <div class="card"><h3>Preview Editor</h3><p class="hint">Left click = positive point. Right-click or Shift-click = negative point. In box modes, drag to draw a box.</p><canvas id="sam_canvas" width="900" height="520"></canvas><div class="samActions"><button onclick="samClearPoints()">Clear Points</button><button onclick="samClearBox()">Clear Box</button><button onclick="samClearAll()">Clear All</button><span id="sam_status"></span></div><details class="payloadDetails"><summary>SAM payload JSON</summary><textarea id="sam_payload_preview" rows="8" readonly></textarea></details></div>
+  </div>
+  <div class="card"><h3>Outputs</h3><p class="hint">Use <strong>Mask Video</strong> for WanAnimate: white is the editable area, black is preserved. By default that white area is the selected subject.</p><div class="samOutputGrid videoOnly"><div title="Recommended for WanAnimate subject replacement. Black/white video mask: white edit area, black preserved area."><h4>Mask Video</h4><video id="sam_mask_video_preview" class="samOut hidden" controls muted></video><input id="sam_mask_video_path" readonly></div><div title="Composited visual preview of the source video with the preserved area filled. This is only a visual check."><h4>Masked Preview Video</h4><video id="sam_masked_video_preview" class="samOut hidden" controls muted></video><input id="sam_masked_video_path" readonly></div></div><div class="samActions"><button class="run" title="Recommended: send the black/white mask video to WanAnimate for subject replacement." onclick="samSendMaskVideoToWan()">Use Mask Video in WanAnimate</button><button title="Use the composited preview video as InfiniteTalk video input." onclick="samSendMaskedVideoToInf()">Use Masked Preview Video in InfiniteTalk</button><button title="Advanced/diagnostic only. For Wan replacement masks, use Mask Video instead." onclick="samSendMaskedVideoToWanMask()">Use Preview Video as Wan Extra</button></div><div class="outputPanel"><h3>Output History</h3><div id="sam_output_empty" class="outputEmpty">SAM mask runs will appear here.</div><div id="sam_output_grid" class="outputGrid"></div></div></div>
+</section>
+
+<section id="settings" class="tab panel"><h2>Settings</h2><div class="card fields wide">
+  <label>RunPod API Key<input id="runpod_api_key" type="password"></label><label>InfiniteTalk Endpoint<input id="infinite_endpoint_id"></label><label>WanAnimate Endpoint<input id="wan_endpoint_id"></label><label>MiniMax H3 Endpoint<input id="h3_endpoint_id" value="s1e3i9book2zhh"></label><label>Timeout Seconds<input id="timeout_seconds" type="number" value="3600"></label>
+  <label title="Optional Hugging Face token for gated facebook/sam3 checkpoint access. Stored in local settings.">Hugging Face Token<input id="sam_hf_token" type="password" placeholder="hf_..."></label>
+  <label title="Global media delivery. Auto matches the old desktop app: small local files go Base64; larger files upload to S3 and send a RunPod volume path.">Global Delivery<select id="delivery_mode"><option value="auto">Auto / desktop behavior</option><option value="runpod_volume_path">RunPod Volume Path</option><option value="s3_url">S3 URL</option><option value="base64">Base64 / direct</option></select></label>
+  <label>S3 Endpoint<input id="s3_endpoint_url"></label><label>S3 Access Key<input id="s3_access_key_id"></label><label>S3 Secret<input id="s3_secret_access_key" type="password"></label><label>S3 Bucket<input id="s3_bucket"></label><label>S3 Region<input id="s3_region"></label><label>S3 Prefix<input id="s3_prefix"></label><label>RunPod Volume Root<input id="runpod_volume_root"></label><label>Output Dir<input id="output_dir"></label>
+  <label title="Working cache location for uploads, temp transcodes, and thumbnails. Final outputs stay in Output Dir.">App Cache Dir<input id="cache_dir" placeholder="D:\RunPodMediaConsoleWeb\cache"></label>
+  <label title="Folder where SAM frames, masks, overlays, cutouts, masked images, and masked videos are written.">SAM Output Dir<input id="sam_output_dir" placeholder="D:\RunPodMediaConsoleWeb\sam_outputs"></label>
+  <label title="Default free local text-to-speech engine. Windows voices work immediately; Piper uses a local open-source voice model.">TTS Engine<select id="tts_default_engine"><option value="windows_sapi">Windows voices</option><option value="piper">Piper local model</option></select></label>
+  <label title="Optional Piper executable path. Leave blank to use piper from PATH.">Piper Executable<input id="tts_piper_exe" placeholder="D:\piper\piper.exe"></label>
+  <label title="Local Piper .onnx voice model path. Required only when using Piper.">Piper Voice Model<input id="tts_piper_model" placeholder="D:\piper\voices\voice.onnx"></label>
+  <label title="Optional Piper .onnx.json config path.">Piper Config<input id="tts_piper_config" placeholder="D:\piper\voices\voice.onnx.json"></label>
+  <div class="settingsAction" title="Downloads/uses the bundled free Piper Lessac voice and writes the paths into these settings."><button type="button" onclick="setupPiperVoice()">Set up Piper voice</button><span id="piper_status">Piper status not checked.</span></div>
+  <label title="Delete app cache files older than this many days. Set 0 to remove all cache files when cleanup runs.">Cache Keep Days<input id="cache_max_age_days" type="number" min="0" value="7"></label>
+  <label title="Automatically clean app cache on startup. Use Clean expired now for an immediate cleanup. Does not delete final outputs or Hugging Face model weights."><input id="cache_cleanup_enabled" type="checkbox" checked> Auto-clean app cache</label>
+  <label title="Optional Hugging Face model cache location used by local SAM3. Moving this can reclaim space from C:\Users\...\ .cache\huggingface after you copy or redownload models.">Hugging Face Cache Dir<input id="hf_cache_dir" placeholder="D:\HFCache"></label>
+  <button onclick="saveSettings()">Save Settings</button></div>
+  <div class="card"><div class="cardTitleRow"><h3>MiniMax H3 Separate Network Volume</h3><span class="hint">Endpoint-specific; blank credentials inherit the global RunPod S3 credentials above.</span></div><div class="fields wide">
+    <label title="RunPod network volume attached to the H3 endpoint. Its ID is also its S3 bucket name.">H3 Network Volume / Bucket<input id="h3_network_volume_id" value="vgc3ky6r6y"></label>
+    <label title="S3 bucket for the H3 volume. Normally the same value as the network volume ID.">H3 S3 Bucket<input id="h3_s3_bucket" value="vgc3ky6r6y"></label>
+    <label title="Leave blank to inherit the global S3 endpoint.">H3 S3 Endpoint<input id="h3_s3_endpoint_url" placeholder="Inherit global"></label>
+    <label title="Leave blank to inherit the global S3 access key.">H3 S3 Access Key<input id="h3_s3_access_key_id" placeholder="Inherit global"></label>
+    <label title="Leave blank to inherit the global S3 secret.">H3 S3 Secret<input id="h3_s3_secret_access_key" type="password" placeholder="Inherit global"></label>
+    <label>H3 S3 Region<input id="h3_s3_region" value="eu-ro-1"></label>
+    <label>H3 S3 Prefix<input id="h3_s3_prefix" value="minimax-h3"></label>
+    <label>H3 Volume Root<input id="h3_runpod_volume_root" value="/runpod-volume"></label>
+  </div><div class="settingsAction"><button type="button" onclick="useH3StorageAsMain()">Use H3 bucket as Main</button><span>Changes future global uploads/browsing only; it does not copy old objects. Attach the newer volume to other endpoints before relying on its volume paths.</span></div></div>
+  <div class="card cachePanel"><div class="cardTitleRow"><h3>Cache</h3><div class="logActions"><button type="button" onclick="loadCacheInfo()">Refresh</button><button type="button" onclick="cleanCache(false)">Clean old cache</button><button type="button" onclick="cleanCache(true)">Clear app cache</button></div></div><pre id="cache_info">Cache info not loaded.</pre></div>
+</section>
+
+<section id="browser" class="tab panel mediaBrowserPanel">
+  <h2>Media Browser</h2>
+  <div class="browserTop card">
+    <label title="Choose local files or S3 bucket objects.">Source<select id="browser_source"><option value="local">Local</option><option value="s3">S3 Bucket</option></select></label>
+    <label id="browser_storage_label" class="hidden" title="Switch between the original main bucket and the separate H3 network-volume bucket.">Bucket<select id="browser_storage"><option value="h3">H3 / newer volume</option><option value="main">Main / original volume</option></select></label>
+    <label id="browse_path_label" title="Current local folder or S3 prefix. Type or paste a path/prefix, then press Browse.">Folder<input id="browse_path" placeholder="Folder path"></label>
+    <button onclick="browseHome()" title="Go to your Windows user folder">⌂ Home</button>
+    <button onclick="browseParent()" title="Go to parent folder">Up</button>
+    <button onclick="browse()" title="Refresh or open the folder path above">Browse</button>
+    <button onclick="downloadS3Selected()" title="Download the selected S3 object(s) to the local output folder. Use Ctrl/Command-click to toggle files and Shift-click to select a range.">Download Selected</button>
+    <button onclick="downloadS3CurrentPrefix()" title="Download every object under the current S3 prefix to the local output folder">Download Prefix</button>
+    <button onclick="addBrowserFavorite()" title="Save this folder to browser favorites">Favorite +</button>
+    <button onclick="clearBrowserFavorites()" title="Clear saved browser favorites">Clear Favorites</button>
+  </div>
+  <div class="browserFilters card">
+    <label title="Show every object or filter to supported preview media">Type<select id="browser_type"><option value="All">All files</option><option>Images</option><option>Videos</option><option>Audio</option></select></label>
+    <label title="Sort files and folders">Sort By<select id="browser_sort_by"><option value="name">Name</option><option value="size">Size</option><option value="modified">Modified</option><option value="created">Created</option><option value="type">Type</option></select></label>
+    <label title="Sort direction">Order<select id="browser_sort_dir"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+    <button type="button" onclick="sortBrowserFoldersByModified()" title="Sort folders and files from newest modified to oldest; S3 folder dates use the newest object below each folder.">Newest folders first</button>
+    <label title="Saved favorite folders">Favorites<select id="browser_favorites"><option value="">Favorites</option></select></label>
+    <label title="Search by filename"><input id="browser_search" placeholder="Search files"></label>
+    <label title="Search all subfolders. This can be slower on huge folders."><input id="browser_recursive" type="checkbox"> Recursive</label>
+  </div>
+  <div class="browserGrid">
+    <div class="card browserListCard"><h3>Files</h3><div id="browser_list" class="browserList"></div></div>
+    <div class="card browserPreviewCard"><h3>Preview</h3>
+      <div id="browser_preview_empty" class="browserEmpty">Select an image, video, or audio file</div>
+      <img id="browser_image_preview" class="browserPreview hidden" alt="Media preview">
+      <video id="browser_video_preview" class="browserPreview hidden" controls></video>
+      <audio id="browser_audio_preview" class="browserAudio hidden" controls></audio>
+      <button id="browser_use_target" class="run hidden" onclick="setBrowserTarget()" title="Use selected file for the field that opened the browser">Use selected</button>
+      <div class="browserActions">
+        <button onclick="setBrowserTarget('inf_image_path')" title="Use selected file as InfiniteTalk image input">→ InfiniteTalk Image</button>
+        <button onclick="setBrowserTarget('inf_video_path')" title="Use selected file as InfiniteTalk video input">→ InfiniteTalk Video</button>
+        <button onclick="setBrowserTarget('inf_audio_path')" title="Use selected file as InfiniteTalk audio input">→ InfiniteTalk Audio</button>
+        <button onclick="setBrowserTarget('inf_audio2_path')" title="Use selected file as InfiniteTalk second audio input">→ InfiniteTalk Audio 2</button>
+        <button onclick="setBrowserTarget('wan_image_path')" title="Use selected file as WanAnimate reference image">→ Wan Image</button>
+        <button onclick="setBrowserTarget('wan_video_path')" title="Use selected file as WanAnimate reference video">→ Wan Video</button>
+        <button onclick="setBrowserTarget('wan_mask_path')" title="Use selected file as WanAnimate mask input">→ Wan Mask</button>
+        <button onclick="setBrowserTarget('wan_masked_video_path')" title="Use selected file as WanAnimate masked-video input">→ Wan Masked Video</button>
+        <button onclick="setBrowserTarget('h3_first_frame_path')" title="Use selected image as the H3 first frame">→ H3 First Frame</button>
+        <button onclick="setBrowserTarget('h3_last_frame_path')" title="Use selected image as the H3 last frame">→ H3 Last Frame</button>
+        <button onclick="sendBrowserSelectionToH3('image')" title="Add selected image(s) to the next available H3 reference slots">→ H3 Image Ref(s)</button>
+        <button onclick="sendBrowserSelectionToH3('video')" title="Add selected video(s) to the next available H3 reference slots">→ H3 Video Ref(s)</button>
+        <button onclick="sendBrowserSelectionToH3('audio')" title="Add selected audio file(s) to the next available H3 reference slots">→ H3 Audio Ref(s)</button>
+        <button onclick="setBrowserTarget('samimate_video_path')" title="Use selected file as SAMimate source video">→ SAMimate Video</button>
+        <button onclick="setBrowserTarget('samimate_image_path')" title="Use selected file as SAMimate reference image">→ SAMimate Image</button>
+        <button onclick="setBrowserTarget('sam_source_path')" title="Use selected file as SAM Studio source">→ SAM Source</button>
+        <button onclick="addBrowserFileToPrompt()" title="Add selected filename text to the currently visible prompt">+ Add filename to current prompt</button>
+      </div>
+    </div>
+    <div class="card browserInfoCard"><h3>File Info</h3><pre id="browser_details"></pre></div>
+  </div>
+</section>
+
+</main>
+<section id="log_panel" class="logPanel">
+  <div id="log_resize_handle" class="logResizeHandle" title="Drag to resize logs"></div>
+  <div class="logHeader">
+    <span>LOGS</span>
+    <div class="logActions">
+      <button type="button" onclick="clearLogs()" title="Clear log output">Clear</button>
+      <button id="log_toggle_btn" type="button" onclick="toggleLogs()" title="Hide or show logs">Hide</button>
+    </div>
+  </div>
+  <pre id="log"></pre>
+</section>
+<script src="/static/app.js?v=15.57"></script>
+<script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
+</body>
+</html>
