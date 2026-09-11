@@ -31,6 +31,20 @@ def asset(name: str) -> dict[str, str]:
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_masked_r2v_routes_source_and_mask_to_sampler(self):
+        workflow, _ = handler.build_preset({
+            "task": "r2v_masked", "prompt": "replace person", "duration": 2,
+            "references": [asset("a.png"), asset("b.png")],
+            "masked_edit": {"source": asset("source.mkv"), "mask": asset("mask.mp4"), "width": 832, "height": 480},
+        })
+        self.assertEqual(workflow["125"]["inputs"]["latent_image"], ["8702", 0])
+        self.assertEqual(workflow["8702"]["inputs"]["target"], ["136", 1])
+        self.assertEqual(workflow["136"]["inputs"]["ref_images.ref_image_1"], ["8001", 0])
+        self.assertNotIn("ref_videos.ref_video_0", workflow["136"]["inputs"])
+        self.assertNotIn("audio", workflow["130"]["inputs"])
+        with self.assertRaises(handler.InputError):
+            handler.build_preset({"task": "r2v_masked", "prompt": "test"})
+
     def test_flat_volume_outputs_are_unique_and_have_no_job_subfolder(self):
         root = Path(self.temp.name)
         source = root / "clip.mp4"

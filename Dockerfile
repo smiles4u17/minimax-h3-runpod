@@ -7,7 +7,7 @@ ARG SAGEATTENTION_WHEEL_SHA256=b6a1c65287a1e7d802c98bf1b7267446823a15dc160b4beed
 FROM ${WORKER_BASE} AS runtime
 ARG SAGEATTENTION_WHEEL_URL
 ARG SAGEATTENTION_WHEEL_SHA256
-ARG COMFYUI_REF=v0.33.1
+ARG COMFYUI_REF=1f641fd9337f0ec4d635a28415a8d25a8d15f753
 ARG KJNODES_REF=35e5956193769d18a13136cdedb73a36a05c73e6
 ARG TURBO_REF=55fee864dd7b2976b1c4ce3c3d5f7968f181409f
 ARG FBCACHE_REF=18362a23175771e68e4aa737d333bf4d4ee825fc
@@ -71,6 +71,7 @@ RUN python3.12 -m pip install --no-cache-dir \
 COPY handler.py start.sh extra_model_paths.yaml /opt/minimax-h3/
 COPY scripts /opt/minimax-h3/scripts
 COPY workflows /opt/minimax-h3/workflows
+COPY custom_nodes/samimate_h3 /comfyui/custom_nodes/samimate_h3
 RUN chmod +x /opt/minimax-h3/start.sh /opt/minimax-h3/scripts/*.py \
     && cd /comfyui \
     && timeout 300 python3.12 main.py --quick-test-for-ci --cpu

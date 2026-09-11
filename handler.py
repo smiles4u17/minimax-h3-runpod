@@ -589,9 +589,36 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
     if first_output_audio and bool(payload.get("use_reference_audio_as_output", False)):
         workflow["130"]["inputs"]["audio"] = first_output_audio
 
+    edit = payload.get("masked_edit")
+    if edit is not None:
+        if not isinstance(edit, dict) or not edit.get("source") or not edit.get("mask") or not references:
+            raise InputError("masked_edit requires source video, subject mask, and identity images")
+        if videos or audios:
+            raise InputError("Masked source is the target latent; supply only identity image references")
+        width, height = int(edit.get("width", 0)), int(edit.get("height", 0))
+        if min(width, height) < 32 or max(width, height) > 4096 or width % 32 or height % 32:
+            raise InputError("Masked H3 canvas must be multiples of 32, between 32 and 4096")
+        if width * height > 2_000_000:
+            raise InputError("Masked H3 canvas exceeds 2 megapixels")
+        workflow["136"]["inputs"].update(width=width, height=height)
+        for node_id, key in (("8700", "source"), ("8701", "mask")):
+            workflow[node_id] = {"class_type": "VHS_LoadVideo", "inputs": {
+                "video": _materialize_asset(edit[key], f"samimate_{key}.mkv"),
+                "force_rate": 24, "custom_width": 0, "custom_height": 0,
+                "frame_load_cap": _output_frame_count(payload), "skip_first_frames": 0,
+                "select_every_nth": 1}}
+        workflow["8702"] = {"class_type": "SAMimateH3MaskedTarget", "inputs": {
+            "target": ["136", 1], "source": ["8700", 0], "mask_frames": ["8701", 0], "vae": ["119", 0]}}
+        workflow["125"]["inputs"]["latent_image"] = ["8702", 0]
+        workflow["130"]["inputs"].pop("audio", None)
+
 
 def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     task = str(payload.get("task", "")).lower()
+    if task == "r2v_masked":
+        if not payload.get("masked_edit"):
+            raise InputError("r2v_masked requires masked_edit")
+        task = "r2v"
     if task not in TASKS:
         raise InputError("task must be fl2v or r2v")
     spec = TASKS[task]
