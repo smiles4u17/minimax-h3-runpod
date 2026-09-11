@@ -1,0 +1,22 @@
+{
+  "input": {
+    "task": "t2v",
+    "prompt": "A blue ceramic toy robot waves on a wooden table in warm morning light. Quiet room ambience.",
+    "duration": 5,
+    "megapixels": 0.5,
+    "turbo_enabled": false,
+    "steps": 8,
+    "sampler": "euler",
+    "scheduler": "simple",
+    "attention": "native",
+    "cache_enabled": false,
+    "seed": 424242,
+    "pdd_enabled": true,
+    "loras": [
+      {
+        "name": "MiniMax-H3-FL2VA-Acc-8Step_comfy.safetensors",
+        "strength": 1
+      }
+    ]
+  }
+}

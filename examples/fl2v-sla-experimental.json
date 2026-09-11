@@ -1,0 +1,30 @@
+{
+  "input": {
+    "task": "fl2v",
+    "first_frame": {
+      "volume_path": "/runpod-volume/inputs/first.png"
+    },
+    "prompt": "The toy robot from the first frame waves. Warm morning light. Quiet room ambience.",
+    "duration": 5,
+    "megapixels": 0.98,
+    "turbo_enabled": false,
+    "steps": 4,
+    "sampler": "euler",
+    "scheduler": "simple",
+    "attention": "sla",
+    "sparse_trained_weights": true,
+    "sparse_keep_percent": 15,
+    "sparse_start_percent": 0,
+    "sparse_end_percent": 1,
+    "shift_video": 6,
+    "shift_audio": 3,
+    "cache_enabled": false,
+    "loras": [
+      {
+        "name": "H3/minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors",
+        "strength": 1
+      }
+    ],
+    "seed": 424242
+  }
+}

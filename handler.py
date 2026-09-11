@@ -205,16 +205,16 @@ def _sage_available() -> bool:
 
 def _attention_mode(requested: str, capability: tuple[int, int] | None) -> str:
     configured = (requested or os.environ.get("ATTENTION_MODE", "auto")).lower()
-    if configured not in {"auto", "sage", "native"}:
-        raise InputError("attention must be auto, sage, or native")
+    if configured not in {"auto", "sage", "native", "sla", "sol-attn", "vsa"}:
+        raise InputError("attention must be auto, sage, native, sla, sol-attn, or vsa")
     if configured == "sage":
         if capability not in SAGE_CAPABILITIES:
             raise RuntimeError(f"SageAttention is not compiled for CUDA capability {capability}.")
         if not _sage_available():
             raise RuntimeError("SageAttention was requested but is not importable.")
         return "sage"
-    if configured == "native":
-        return "native"
+    if configured in {"native", "sla", "sol-attn", "vsa"}:
+        return configured
     return "sage" if capability in SAGE_CAPABILITIES and _sage_available() else "native"
 
 
@@ -367,12 +367,52 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         workflow.pop("154", None)
     workflow["124"]["inputs"]["scheduler"] = scheduler
 
+    if "shift_video" in payload or "shift_audio" in payload:
+        video_shift = float(payload.get("shift_video", 12.0))
+        audio_shift = float(payload.get("shift_audio", 3.0))
+        if not (0.01 <= video_shift <= 100 and 0.01 <= audio_shift <= 100):
+            raise InputError("H3 flow shifts must be between 0.01 and 100")
+        workflow["9161"] = {"class_type": "MiniMaxH3SigmaShift", "inputs": {
+            "model": model, "shift_video": video_shift, "shift_audio": audio_shift}}
+        model = ["9161", 0]
+
+    if _payload_bool(payload.get("pdd_enabled")):
+        expected = "Ref2VA" if spec["conditioning"] == "136" else "FL2VA"
+        names = [str(item.get("name", "")) for item in payload.get("loras", [])]
+        if not any(expected in name and "Acc-8Step" in name and "comfy" in name for name in names):
+            raise InputError(f"PDD requires the converted {expected} Acc-8Step ComfyUI LoRA")
+        if "shift_video" in payload or "shift_audio" in payload:
+            raise InputError("PDD fixes the flow shifts at 12/3; remove custom shifts")
+        if turbo_enabled or steps != 8 or sampler != "euler" or scheduler != "simple" or cache_enabled:
+            raise InputError("PDD requires Euler/simple, 8 steps, separate Turbo and cache disabled")
+        workflow["9161"] = {"class_type": "MiniMaxH3SigmaShift", "inputs": {
+            "model": model, "shift_video": 12.0, "shift_audio": 3.0}}
+        model = ["9161", 0]
+
     attention = _attention_mode(str(payload.get("attention") or ""), capability)
-    if attention == "native":
+    if attention in {"native", "sla", "sol-attn", "vsa"}:
         workflow.pop("145", None)
     else:
         workflow["145"]["inputs"]["model"] = model
         model = ["145", 0]
+
+    if attention in {"sla", "sol-attn", "vsa"}:
+        if cache_enabled:
+            raise InputError("Disable FirstBlockCache when using sparse attention")
+        if attention in {"sla", "vsa"} and not _payload_bool(payload.get("sparse_trained_weights")):
+            raise InputError("SLA/VSA requires matching trained model weights or LoRA; confirm sparse_trained_weights")
+        keep = float(payload.get("sparse_keep_percent", 10.0))
+        tau = float(payload.get("sparse_tau", 1.3))
+        start = float(payload.get("sparse_start_percent", 0.2))
+        end = float(payload.get("sparse_end_percent", 1.0))
+        if not (0.5 <= keep <= 95 and 0 <= tau <= 4 and 0 <= start <= end <= 1):
+            raise InputError("Invalid sparse attention percentage, threshold, or sampling window")
+        inputs = {"model": model, "selection": attention, "start_percent": start,
+                  "end_percent": end, "dense_blocks": "", "min_tokens": 12288,
+                  "extra_tokens": 256, "sink_conditioning": "exact_kv_and_rows", "verbose": True}
+        inputs["selection.tau" if attention == "sol-attn" else "selection.keep_percent"] = tau if attention == "sol-attn" else keep
+        workflow["9160"] = {"class_type": "BlockSparseAttention", "inputs": inputs}
+        model = ["9160", 0]
 
     if cache_enabled:
         workflow[spec["cache"]]["inputs"]["threshold"] = threshold
@@ -619,16 +659,24 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
         if not payload.get("masked_edit"):
             raise InputError("r2v_masked requires masked_edit")
         task = "r2v"
+    requested_task = task
+    if task == "t2v":
+        task = "fl2v"
     if task not in TASKS:
-        raise InputError("task must be fl2v or r2v")
+        raise InputError("task must be t2v, fl2v or r2v")
     spec = TASKS[task]
     workflow = _load_template(spec["template"])
     metadata = _patch_common(workflow, spec, payload)
-    if task == "fl2v":
+    if requested_task == "t2v":
+        for key in ("first_frame", "last_frame"):
+            workflow["182"]["inputs"].pop(key, None)
+        for node in ("139", "233", "902", "903"):
+            workflow.pop(node, None)
+    elif task == "fl2v":
         _patch_fl2v(workflow, payload)
     else:
         _patch_r2v(workflow, payload)
-    metadata["task"] = task
+    metadata["task"] = requested_task
     return workflow, metadata
 
 

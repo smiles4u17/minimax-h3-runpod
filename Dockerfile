@@ -74,6 +74,7 @@ COPY workflows /opt/minimax-h3/workflows
 COPY custom_nodes/samimate_h3 /comfyui/custom_nodes/samimate_h3
 RUN chmod +x /opt/minimax-h3/start.sh /opt/minimax-h3/scripts/*.py \
     && cd /comfyui \
+    && python3.12 /opt/minimax-h3/scripts/verify_h3_runtime.py \
     && timeout 300 python3.12 main.py --quick-test-for-ci --cpu
 
 ENTRYPOINT ["/opt/minimax-h3/start.sh"]

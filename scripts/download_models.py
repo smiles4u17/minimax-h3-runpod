@@ -10,7 +10,12 @@ from huggingface_hub import hf_hub_download
 
 ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui")) / "models"
 
+ASSET_REVISIONS = {"sla-fl2v": "f7c676b328719e281ad0d6e13dce4b54b713f985", "pdd-fl2v": "f4cac997f880e93cf6940af61ee8d58ef31ff7f3", "pdd-r2v": "f4cac997f880e93cf6940af61ee8d58ef31ff7f3"}
+
 ASSETS = {
+    "sla-fl2v": ("asadkhan89/Minimax-h3-Turbo-SLA", "minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors", "loras/H3"),
+    "pdd-fl2v": ("Kijai/MiniMax-H3-experimental", "loras/MiniMax-H3-FL2VA-Acc-8Step_comfy.safetensors", "loras"),
+    "pdd-r2v": ("Kijai/MiniMax-H3-experimental", "loras/MiniMax-H3-Ref2VA-Acc-8Step_comfy.safetensors", "loras"),
     "fl2v": (
         "Comfy-Org/MiniMax-H3",
         "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
@@ -62,6 +67,7 @@ def download(asset: str) -> None:
         filename=filename,
         local_dir=local_dir,
         token=token,
+        revision=ASSET_REVISIONS.get(asset),
     )
 
 

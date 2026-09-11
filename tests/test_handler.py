@@ -31,6 +31,42 @@ def asset(name: str) -> dict[str, str]:
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_text_only_does_not_materialize_stale_frames(self):
+        with mock.patch.object(handler, "_materialize_asset", side_effect=AssertionError("stale media")):
+            graph, meta = handler.build_preset({"task": "t2v", "prompt": "A toy robot", "first_frame": asset("stale.png")})
+        self.assertEqual(meta["task"], "t2v")
+        self.assertNotIn("first_frame", graph["182"]["inputs"])
+        self.assertFalse(any(n["class_type"] == "LoadImage" for n in graph.values()))
+
+    def test_sparse_modes_route_sampler_and_scheduler_through_native_patch(self):
+        for mode in ("sla", "sol-attn", "vsa"):
+            graph, meta = handler.build_preset({"task": "t2v", "prompt": "robot", "attention": mode,
+                "sparse_trained_weights": True, "sparse_keep_percent": 15, "cache_enabled": False})
+            self.assertEqual(graph["9160"]["inputs"]["selection"], mode)
+            self.assertEqual(graph["124"]["inputs"]["model"], ["9160", 0])
+            self.assertEqual(graph["126"]["inputs"]["model"], ["9160", 0])
+            self.assertEqual(graph["9160"]["inputs"]["sink_conditioning"], "exact_kv_and_rows")
+            self.assertNotIn("145", graph)
+            self.assertEqual(meta["attention"], mode)
+        for changes in ({"sparse_trained_weights": False}, {"cache_enabled": True}, {"sparse_keep_percent": 0},
+                        {"sparse_start_percent": 0.9, "sparse_end_percent": 0.2}):
+            with self.assertRaises(handler.InputError):
+                handler.build_preset(dict({"task": "t2v", "prompt": "robot", "attention": "sla",
+                    "sparse_trained_weights": True}, **changes))
+
+    def test_pdd_requires_matched_lora_and_schedule(self):
+        data = {"task": "t2v", "prompt": "robot", "pdd_enabled": True, "turbo_enabled": False,
+                "steps": 8, "sampler": "euler", "scheduler": "simple", "attention": "native",
+                "loras": [{"name": "MiniMax-H3-FL2VA-Acc-8Step_comfy.safetensors", "strength": 1}]}
+        graph, _ = handler.build_preset(data)
+        self.assertEqual(graph["9161"]["inputs"]["shift_video"], 12)
+        self.assertEqual(graph["9161"]["inputs"]["shift_audio"], 3)
+        self.assertEqual(graph["126"]["inputs"]["model"], ["9161", 0])
+        with self.assertRaises(handler.InputError):
+            handler.build_preset(dict(data, steps=6))
+        with self.assertRaises(handler.InputError):
+            handler.build_preset(dict(data, loras=[]))
+
     def test_masked_r2v_routes_source_and_mask_to_sampler(self):
         workflow, _ = handler.build_preset({
             "task": "r2v_masked", "prompt": "replace person", "duration": 2,
