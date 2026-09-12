@@ -84,6 +84,9 @@ class SecurityAndH3Tests(unittest.TestCase):
         self.assertIn('woman on the left', payload['prompt'])
 
     def setUp(self):
+        startup = mock.patch.object(media_console.OUTPUT_SYNC, "start")
+        startup.start()
+        self.addCleanup(startup.stop)
         temp_parent = media_console.APP_DIR / "cache" / "temp"
         temp_parent.mkdir(parents=True, exist_ok=True)
         self.temp_dir = tempfile.TemporaryDirectory(dir=temp_parent)

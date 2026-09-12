@@ -10,8 +10,9 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
+from output_sync import OutputSync
 
-APP_VERSION = "web-v15.59-h3-turbo-families"
+APP_VERSION = "web-v15.60-output-catch-up"
 H3_SAMPLERS = {"h3_turbo", "res_multistep", "er_sde", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "deis", "uni_pc"}
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
 H3_INLINE_FILE_LIMIT_BYTES = 6 * 1024 * 1024
@@ -2580,8 +2581,29 @@ def recent_outputs(limit: int = 40) -> list[dict[str, Any]]:
     items.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return [{"path": str(p), "url": safe_file_url(p), "kind": media_kind(p), "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(p.stat().st_mtime)), "size_mb": round(p.stat().st_size/(1024*1024), 3)} for p in items[:limit]]
 
+def output_sync_sources():
+    s = settings()
+    sources = {}
+    for name, profile in (("main", s), ("H3", h3_storage_settings(s))):
+        helper = configured_s3_helper(profile)
+        if helper:
+            endpoint = str(profile.get("s3_endpoint_url") or "")
+            identity = (endpoint, helper.bucket)
+            prefixes = s3_output_prefix_candidates(profile)
+            if identity in sources:
+                sources[identity][2].extend(prefixes)
+            else:
+                sources[identity] = (name, helper, prefixes, endpoint)
+    return list(sources.values())
+
+
 app = FastAPI(title=APP_NAME)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent/"static"), name="static")
+
+
+@app.on_event("startup")
+def start_output_catch_up():
+    OUTPUT_SYNC.start()
 
 
 @app.middleware("http")
@@ -2727,6 +2749,12 @@ async def wan_align_mask_preview(data: dict[str, Any]):
 @app.get("/api/outputs/recent")
 def get_recent_outputs(limit: int = 40):
     return {"items": recent_outputs(limit)}
+@app.post("/api/outputs/sync")
+def start_output_sync():
+    return OUTPUT_SYNC.start()
+@app.get("/api/outputs/sync")
+def get_output_sync():
+    return OUTPUT_SYNC.snapshot()
 @app.post("/api/error/explain")
 async def explain_error(data: dict[str, Any]):
     text = data.get("text") or data.get("error") or ""
@@ -3053,6 +3081,8 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 VIDEO_EXT = {".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm"}
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg"}
 MEDIA_EXT = IMAGE_EXT | VIDEO_EXT | AUDIO_EXT
+OUTPUT_SYNC = OutputSync(DATA_DIR / "output_sync.json", output_sync_sources,
+                         lambda: settings().get("output_dir") or DEFAULT_OUTPUT_DIR, MEDIA_EXT)
 
 
 def media_kind(path: Path) -> str:
