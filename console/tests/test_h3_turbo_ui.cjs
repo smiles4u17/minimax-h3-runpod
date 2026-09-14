@@ -12,7 +12,7 @@ const scope = {$:id=>elements[id],val:id=>values[id]||'',chk:id=>!!values[id],
   fillH3ModelSelect:(id,items)=>elements[id].options=items.map(value=>({value})),
   updateH3QualityNotice(){},persistSettingsSoon(){}};
 vm.createContext(scope);
-for (const name of ['updateH3TurboUI','selectH3TurboFamily'])
+for (const name of ['currentH3TurboLora','updateH3TurboUI','selectH3TurboFamily'])
   vm.runInContext(source.split('\n').find(s=>s.startsWith(`function ${name}(`)),scope);
 vm.runInContext("selectH3TurboFamily('lightx2v')",scope);
 assert.match(values.h3_turbo_lora, /fl2v_turbo_4step.*comfyui/);
@@ -46,8 +46,8 @@ for(const task of ['r2v','fl2v']) {
  values.h3_task=task;
  const tag=task==='r2v'?'ref2v':'fl2v';
  elements.h3_turbo_lora.options=[
- {value:'H3/minimax_h3_'+tag+'_turbo_4step_'+(task==='r2v'?'v0.1':'v1.0_768p')+'_comfyui_bf16.safetensors'},
- {value:'H3/minimax_h3_'+tag+'_turbo_8step_v1.0'+(task==='r2v'?'_768p':'')+'_comfyui_bf16.safetensors'}];
+ {value:'H3/minimax_h3_'+tag+'_turbo_4step_'+(task==='r2v'?'v0.1':'v1.2_768p')+'_comfyui_bf16.safetensors'},
+ {value:'H3/minimax_h3_'+tag+'_turbo_8step_v1.0'+'_768p'+'_comfyui_bf16.safetensors'}];
  for(const steps of [4,8]) {
   vm.runInContext("applyH3SamplingPreset('lightx"+steps+"')",scope);
   assert.equal(values.h3_steps,steps);
@@ -61,3 +61,7 @@ for(const task of ['r2v','fl2v']) {
  assert.equal(values.h3_steps,20);
 }
 console.log('Standard and task-matched LightX presets verified');
+
+assert.equal(scope.currentH3TurboLora('H3/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors'),'H3/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors');
+assert.equal(scope.currentH3TurboLora('H3/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors'),'H3/minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors');
+assert.equal(scope.currentH3TurboLora('H3/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors'),'H3/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors');

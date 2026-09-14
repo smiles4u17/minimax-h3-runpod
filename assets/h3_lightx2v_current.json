@@ -1,0 +1,34 @@
+[
+  {
+    "repo": "lightx2v/Minimax-h3-Turbo",
+    "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+    "file": "minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors",
+    "size": 1956193000,
+    "sha256": "c8168ebc17bbacc4296103dda2fec1ba85b24392fa08cf2bfbcef0cff0dc3cc8",
+    "key": "models/loras/H3/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors"
+  },
+  {
+    "repo": "lightx2v/Minimax-h3-Turbo",
+    "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+    "file": "minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+    "size": 1956193000,
+    "sha256": "08cfe946033af7d27719b964b6e0a0e50c32138daabbd6ce4137e23df6bf9980",
+    "key": "models/loras/H3/minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors"
+  },
+  {
+    "repo": "lightx2v/Minimax-h3-Turbo",
+    "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+    "file": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+    "size": 1956193000,
+    "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c",
+    "key": "models/loras/H3/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+  },
+  {
+    "repo": "lightx2v/Minimax-h3-Turbo",
+    "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+    "file": "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+    "size": 1956193000,
+    "sha256": "6a56f41ab4229c9dd845b9501bbd475ee57e112d846cf2e819d534a1ae928c5a",
+    "key": "models/loras/H3/minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors"
+  }
+]

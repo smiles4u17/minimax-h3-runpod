@@ -136,8 +136,8 @@
         "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
         "minimax_h3_video_vae_fp16.safetensors",
         "minimax_h3_audio_vae_fp32.safetensors",
-        "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
-        12,
+        "H3/minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+        6,
         3,
         8,
         "euler"
@@ -204,7 +204,7 @@
       },
       "widgets_values": [
         "16:9 (Widescreen)",
-        0.5,
+        0.98,
         32
       ]
     },
@@ -1265,7 +1265,7 @@
               "Node name for S&R": "LoraLoaderModelOnly"
             },
             "widgets_values": [
-              "251013_qwen_image_fp8_4step_cfg3_4step_1600ema.safetensors",
+              "H3/minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
               1
             ]
           },
@@ -1324,7 +1324,7 @@
               "Node name for S&R": "MiniMaxH3SigmaShift"
             },
             "widgets_values": [
-              12,
+              6,
               3
             ]
           },
@@ -1374,7 +1374,7 @@
             },
             "widgets_values": [
               "simple",
-              20,
+              8,
               1
             ]
           },
