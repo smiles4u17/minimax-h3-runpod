@@ -617,7 +617,7 @@ function updateSamimateBackendUI(){
   $('samimate_backend_hint').textContent=h3?'Ref2VA replaces the SAM area using all identity views. The original background and audio are composited back. Select a 1–15 second trim; H3 uses 24 fps. Prepare masks once, then choose the H3 settings below and send.':'WanAnimate receives the SAM subject mask as its edit area, then the original background is composited back.';
   if(h3)set('samimate_fps',24);
   $('samimate_fps').disabled=h3;
-  if($('samimate_run_button'))$('samimate_run_button').textContent=h3?'Send to H3':'Run SAMimate';
+  if($('samimate_run_button'))$('samimate_run_button').textContent=h3?'Run SAMimate → H3':'Run SAMimate → WanAnimate';
   let trimHint=document.querySelector('.videoTools[data-prefix="samimate"] > .hint');if(trimHint)trimHint.textContent=h3?'H3 uses 24 fps for masking. The smaller nonzero frame cap limits the selected trim. The final master retains the source frame rate.':'Trim overrides Frame Cap. Crop runs before resize during local preprocessing.';
 }
 function samimateH3Duration(){let d=videoDuration('samimate')||0,start=timeVal('samimate_video_start',0),end=val('samimate_video_end')?timeVal('samimate_video_end',d):d;let span=end-start,cap=samimateWanFrameCap();return cap>0?Math.min(span||cap/24,cap/24):span}
@@ -1112,7 +1112,7 @@ async function sendSamimateH3(){
     SAMIMATE_STATE={active:true,backend:'h3',prepared:masks.prepared,sourceVideo:p.video_path,referenceImage:p.image_path,subjectMask:masks.masks.mask_video_path,invertedMask:masks.masks.inverted_mask_video_path,runDir:folder.path,runName:folder.name,job:r.job.id,endpoint:r.endpoint_id,submittedAt:Date.now()};
     if(r.payload)$('samimate_payload_preview').value=JSON.stringify({endpoint_id:r.endpoint_id,payload:r.payload},null,2);
     samimateSetStatus('H3 submitted',r.job.id);watch(r.endpoint_id,r.job.id,'samimate',{payload:p,estimateSec:estimateSecFor('samimate',p),startedAt:SAMIMATE_STATE.submittedAt});
-  }catch(e){samimateSetStatus('Error');alert(e.message)}finally{btn.disabled=false;btn.textContent='Send to H3'}
+  }catch(e){samimateSetStatus('Error');alert(e.message)}finally{btn.disabled=false;btn.textContent='Run SAMimate → H3'}
 }
 
 async function samimateRecentUploads(id,event){try{const kind=id==='samimate_video_path'?'video':'image',r=await api('/api/uploads/recent?kind='+kind);const paths=[...new Set([...recentPathsForInput(id),...r.items.map(i=>i.path)])];localStorage.setItem(inputRecentKey(id),JSON.stringify(paths.slice(0,30)));togglePathRecent(id,event)}catch(e){log('Recent uploads: '+e.message)}}

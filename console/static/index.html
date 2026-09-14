@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RunPod Media Console Web</title>
-<link rel="stylesheet" href="/static/styles.css?v=15.61" />
+<link rel="stylesheet" href="/static/styles.css?v=15.62" />
 </head>
 <body>
 <header>
@@ -376,6 +376,13 @@
 
 <section id="samimate" class="tab panel">
   <h2>SAMimate</h2>
+  <div class="card samimateRunBar">
+      <label title="Choose which endpoint generates the replacement video after SAM3 segmentation.">Generation Backend<select id="samimate_generation_backend" onchange="updateSamimateBackendUI();persistSettingsSoon()"><option value="wan">WanAnimate</option><option value="h3">MiniMax H3</option></select></label>
+    <button type="button" id="samimate_run_button" class="run" onclick="runSamimate()">Run SAMimate</button>
+    <button type="button" class="samimateH3Only" onclick="samimatePrepareMasks()">Prepare masks only</button>
+    <span id="samimate_status" role="status"></span>
+    <p class="hint">Run SAMimate prepares or reuses the mask, sends the generation, and composites the result. Use Prepare masks only to inspect masks first.</p>
+  </div>
   <div class="grid two">
     <div class="card"><h3>Inputs</h3>
       <p class="hint">Runs SAM3 on the trimmed source, generates a replacement pass with WanAnimate or MiniMax H3, then overlays the original unmasked background back onto the returned video.</p>
@@ -410,7 +417,7 @@
   <div class="card"><h3 id="samimate_options_title">WanAnimate Options</h3>
     <p id="samimate_backend_hint" class="hint">WanAnimate receives the SAM subject mask as its edit area, then the original background is composited back.</p>
     <div class="fields">
-      <label title="Choose which endpoint generates the replacement video after SAM3 segmentation.">Generation Backend<select id="samimate_generation_backend" onchange="updateSamimateBackendUI();persistSettingsSoon()"><option value="wan">WanAnimate</option><option value="h3">MiniMax H3</option></select></label>
+
       <label title="Maximum frames SAM3 and SAMimate's WanAnimate pass should process. 0 means full selected trim window. If a frame cap makes the generated SAM mask shorter than the selected trim, the app pads/conforms the mask to the processed video length before Wan and composite.">Mask Frame Cap<input id="samimate_frame_cap" type="number" min="0" value="0"></label>
       <label class="samimateWanOnly" title="WanAnimate workflow mode. Replace is the normal subject replacement workflow.">Mode<select id="samimate_mode"><option value="replace">replace</option><option value="animate">animate</option></select></label>
       <label class="samimateWanOnly" title="SAMimate sends multiple media files, so Auto follows the global delivery setting and should normally use RunPod Volume Path to avoid RunPod's 10MiB request-body limit.">Wan Delivery<select id="samimate_delivery_override"><option value="auto">Auto / use global</option><option value="global">Use global delivery</option><option value="base64">Base64 / direct upload</option><option value="runpod_volume_path">RunPod Volume Path</option><option value="s3_url">S3 URL</option></select></label>
@@ -427,7 +434,7 @@
       <label title="Save endpoint output to the RunPod network volume when supported."><input id="samimate_network_volume" type="checkbox" checked> Save output to network volume</label>
       <label class="samimateWanOnly" title="Also include the current WanAnimate point payload if you prepared control points in the Wan tab."><input id="samimate_use_wan_points" type="checkbox"> Include Wan control points</label>
     </div>
-    <div class="samActions"><button type="button" onclick="copyWanToSamimate()">Copy current Wan settings</button><button id="samimate_run_button" class="run" onclick="runSamimate()">Run SAMimate</button><span id="samimate_status"></span></div>
+    <div class="samActions"><button type="button" class="samimateWanOnly" onclick="copyWanToSamimate()">Copy current Wan settings</button><button type="button" class="run" onclick="runSamimate()">Run SAMimate</button></div>
   </div>
   <div class="card outputPanel"><h3>Output Preview</h3><div id="samimate_output_empty" class="outputEmpty">Completed SAMimate composite will appear here.</div><div id="samimate_output_grid" class="outputGrid"></div></div>
 </section>
@@ -559,7 +566,7 @@
   </div>
   <pre id="log"></pre>
 </section>
-<script src="/static/app.js?v=15.61"></script>
+<script src="/static/app.js?v=15.62"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
 </body>
 </html>

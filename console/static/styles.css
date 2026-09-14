@@ -470,3 +470,5 @@ body.logsHidden .logHeader{height:38px}
   #piper_status,
   #points_status{width:100%}
 }
+
+.samimateRunBar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-color:#0284c7}.samimateRunBar label{min-width:180px;margin:0}.samimateRunBar .hint{flex-basis:100%;margin:0}.samimateRunBar .run{font-size:16px;font-weight:700;padding:14px 22px}
