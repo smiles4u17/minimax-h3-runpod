@@ -30,3 +30,34 @@ assert.match(values.h3_turbo_lora,/v4_step600_ema/);
 assert.equal(values.h3_sampler,'h3_turbo');
 assert.equal(elements.h3_steps.value,'160');
 console.log('Turbo switching preserves steps and selects task-matched weights');
+
+values.h3_turbo_enabled=false;
+vm.runInContext('updateH3TurboUI(true)',scope);
+assert.equal(values.h3_sampler,'res_multistep');
+assert.equal(values.h3_steps,'160');
+values.h3_sampler='er_sde';
+vm.runInContext('updateH3TurboUI(true)',scope);
+assert.equal(values.h3_sampler,'er_sde');
+
+scope.setChk=(id,v)=>values[id]=v;
+scope.alert=message=>{throw new Error(message)};
+vm.runInContext(source.split('\n').find(s=>s.startsWith('function applyH3SamplingPreset(')),scope);
+for(const task of ['r2v','fl2v']) {
+ values.h3_task=task;
+ const tag=task==='r2v'?'ref2v':'fl2v';
+ elements.h3_turbo_lora.options=[
+ {value:'H3/minimax_h3_'+tag+'_turbo_4step_'+(task==='r2v'?'v0.1':'v1.0_768p')+'_comfyui_bf16.safetensors'},
+ {value:'H3/minimax_h3_'+tag+'_turbo_8step_v1.0'+(task==='r2v'?'_768p':'')+'_comfyui_bf16.safetensors'}];
+ for(const steps of [4,8]) {
+  vm.runInContext("applyH3SamplingPreset('lightx"+steps+"')",scope);
+  assert.equal(values.h3_steps,steps);
+  assert.equal(values.h3_turbo_enabled,true);
+  assert.equal(values.h3_sampler,'euler');
+  assert.ok(values.h3_turbo_lora.includes(tag+'_turbo_'+steps+'step'));
+ }
+ vm.runInContext("applyH3SamplingPreset('standard20')",scope);
+ assert.equal(values.h3_turbo_enabled,false);
+ assert.equal(values.h3_sampler,'res_multistep');
+ assert.equal(values.h3_steps,20);
+}
+console.log('Standard and task-matched LightX presets verified');

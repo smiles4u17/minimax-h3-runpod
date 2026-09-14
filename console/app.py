@@ -1638,6 +1638,45 @@ def payload_for_inspector(value):
 H3_PREVIEW = ContextVar("h3_preview", default=False)
 
 
+def h3_localize_url(source: str) -> str:
+    """Resolve explicitly supplied loopback media before sizing a remote request."""
+    raw = str(source or "").strip()
+    parsed = urllib.parse.urlparse(raw)
+    host = parsed.hostname or ""
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host.lower() == "localhost"
+    if parsed.scheme not in {"http", "https"} or not loopback or H3_PREVIEW.get():
+        return raw
+    if parsed.username or parsed.password:
+        raise ValueError("Local H3 media URLs must not contain credentials")
+    target = TEMP_DIR / (uuid.uuid4().hex + "_" + clean_name(Path(parsed.path).name or "media.bin"))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    limit = 2 * 1024 * 1024 * 1024
+    try:
+        with requests.get(raw, stream=True, allow_redirects=False, timeout=(10, 120)) as response:
+            response.raise_for_status()
+            if response.status_code != 200:
+                raise ValueError("Local H3 media URL must return media directly, without a redirect")
+            mime = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+            if not mime.startswith(("image/", "video/", "audio/")):
+                raise ValueError("Local H3 URL did not return image, video, or audio media")
+            count = 0
+            with target.open("wb") as output:
+                for chunk in response.iter_content(1024 * 1024):
+                    count += len(chunk)
+                    if count > limit:
+                        raise ValueError("Local H3 media exceeds the 2 GiB download limit")
+                    output.write(chunk)
+            if not count:
+                raise ValueError("Local H3 media is empty")
+        return str(target)
+    except Exception as exc:
+        target.unlink(missing_ok=True)
+        raise ValueError(f"Could not read local H3 media: {exc}") from exc
+
+
 def h3_asset_payload(source: str, kind: str, delivery: str, s3: Optional[S3Helper]) -> dict[str, str]:
     """Build an H3 asset, preferring the endpoint's mounted network volume.
 
@@ -1646,6 +1685,14 @@ def h3_asset_payload(source: str, kind: str, delivery: str, s3: Optional[S3Helpe
     volume, give the worker its mounted path instead.
     """
     raw = str(source or "").strip()
+    host = urllib.parse.urlparse(raw).hostname if is_url(raw) else ""
+    try:
+        local_url = host == "localhost" or bool(host and ipaddress.ip_address(host).is_loopback)
+    except ValueError:
+        local_url = False
+    if H3_PREVIEW.get() and local_url:
+        return {"name": clean_name(Path(urllib.parse.urlparse(raw).path).name or "media.bin"),
+                "preview_source": raw, "preview_delivery": delivery, "preview_note": "Local media will be fetched by this console, then sized for inline or volume delivery"}
     if H3_PREVIEW.get() and raw and not is_url(raw) and not is_s3_uri(raw):
         # Keep the complete graph payload, without uploading or embedding media.
         return {"name": Path(raw).name, "preview_source": raw, "preview_delivery": delivery}
@@ -2297,7 +2344,7 @@ def validation_result(tab: str, data: dict[str, Any]) -> dict[str, Any]:
         if scheduler not in H3_SCHEDULERS:
             errors.append("scheduler is not supported.")
         if sampler == "h3_turbo" and not turbo_enabled:
-            errors.append("the dedicated H3 Turbo sampler requires the separate Turbo LoRA.")
+            sampler = "res_multistep"
         if not configured_s3_helper(h3_storage_settings(s)):
             errors.append("H3 S3 bucket and credentials are required for generated video uploads.")
         if not str(data.get("prompt") or "").strip():
@@ -4588,7 +4635,7 @@ async def run_h3(data: dict[str, Any]):
     if scheduler not in H3_SCHEDULERS:
         raise HTTPException(400, f"Unsupported H3 scheduler: {scheduler}")
     if sampler == "h3_turbo" and not turbo_enabled:
-        raise HTTPException(400, "The dedicated H3 Turbo sampler requires the separate Turbo LoRA")
+        sampler = "res_multistep"
     try:
         steps_value = validate_h3_steps(data.get("steps", 6 if turbo_enabled else 20))
     except ValueError as e:
@@ -4690,8 +4737,8 @@ async def run_h3(data: dict[str, Any]):
     estimated_inline_bytes = 0
     try:
         if task == "fl2v":
-            first_frame = str(data.get("first_frame_path") or "").strip()
-            last_frame = str(data.get("last_frame_path") or "").strip()
+            first_frame = await run_in_threadpool(h3_localize_url, str(data.get("first_frame_path") or "").strip())
+            last_frame = await run_in_threadpool(h3_localize_url, str(data.get("last_frame_path") or "").strip())
             effective_delivery, estimated_inline_bytes = h3_effective_delivery(delivery, [first_frame, last_frame])
             payload["first_frame"] = h3_asset_payload(first_frame, "first_frame", effective_delivery, h3_s3)
             if last_frame:
@@ -4706,6 +4753,9 @@ async def run_h3(data: dict[str, Any]):
             if not references and not videos and not audios:
                 raise ValueError("H3 R2VA requires at least one image, video, or audio reference")
             edit_paths = [data["source_video_path"], data["mask_path"]] if data.get("source_workflow") == "samimate" else []
+            references = [await run_in_threadpool(h3_localize_url, p) for p in references]
+            videos = [await run_in_threadpool(h3_localize_url, p) for p in videos]
+            audios = [await run_in_threadpool(h3_localize_url, p) for p in audios]
             effective_delivery, estimated_inline_bytes = h3_effective_delivery(delivery, references + videos + audios + edit_paths)
             if edit_paths:
                 # Older workers must reject this request, never silently ignore the mask.

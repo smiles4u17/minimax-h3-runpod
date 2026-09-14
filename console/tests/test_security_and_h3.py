@@ -16,6 +16,55 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_turbo_off_normalizes_stale_sampler_in_preview_and_submit(self):
+        for task in ('r2v', 'fl2v'):
+            data = {"settings": {"runpod_api_key": "key", "h3_endpoint_id": "test"},
+                    "task": task, "prompt": "A toy robot", "reference_paths": ["robot.png"],
+                    "first_frame_path": "robot.png", "turbo_enabled": False,
+                    "sampler": "h3_turbo", "steps": 20}
+            with (mock.patch.object(media_console, "configured_s3_helper", return_value=object()),
+                  mock.patch.object(media_console, "h3_asset_payload", return_value={"data": "fixture"}),
+                  mock.patch.object(media_console, "record_job_event"),
+                  mock.patch.object(media_console, "submit", return_value={"id": "test"}) as submit):
+                preview = self.client.post('/api/payload/preview/h3', json=data)
+                self.assertEqual(preview.status_code, 200, preview.text)
+                p = preview.json()['payload']
+                self.assertFalse(p['turbo_enabled'])
+                self.assertEqual(p['sampler'], 'res_multistep')
+                self.assertNotIn('turbo_lora', p)
+                result = self.client.post('/api/run/h3', json=data)
+                self.assertEqual(result.status_code, 200, result.text)
+                self.assertEqual(submit.call_args.args[2]['sampler'], p['sampler'])
+
+    def test_loopback_media_is_localized_before_remote_delivery(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.status_code = 200
+        response.headers = {'Content-Type': 'image/jpeg'}
+        response.iter_content.return_value = [b'fixture-image']
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(media_console, 'TEMP_DIR', Path(folder)), mock.patch.object(media_console.requests, 'get', return_value=response) as get:
+            local = media_console.h3_localize_url('http://127.0.0.1:8788/media/robot.jpg')
+            asset = media_console.h3_asset_payload(local, 'reference', 'auto', None)
+            self.assertIn('data', asset)
+            self.assertNotIn('url', asset)
+            self.assertEqual(Path(local).read_bytes(), b'fixture-image')
+            self.assertFalse(get.call_args.kwargs['allow_redirects'])
+            response.status_code = 302
+            with self.assertRaisesRegex(ValueError, 'redirect'):
+                media_console.h3_localize_url('http://localhost:8788/redirect')
+            response.status_code = 200
+            response.headers = {'Content-Type': 'text/html'}
+            with self.assertRaisesRegex(ValueError, 'media'):
+                media_console.h3_localize_url('http://localhost:8788/page')
+            get.reset_mock()
+            token = media_console.H3_PREVIEW.set(True)
+            try:
+                media_console.h3_localize_url('http://127.0.0.1:8788/media/robot.jpg')
+            finally:
+                media_console.H3_PREVIEW.reset(token)
+            media_console.h3_localize_url('https://example.com/robot.jpg')
+            get.assert_not_called()
+
     def test_samimate_custom_prompt_and_generation_controls_reach_worker(self):
         captured = []
         data = {"settings": {"runpod_api_key": "key", "h3_endpoint_id": "test-h3"},

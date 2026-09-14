@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RunPod Media Console Web</title>
-<link rel="stylesheet" href="/static/styles.css?v=15.62" />
+<link rel="stylesheet" href="/static/styles.css?v=15.63" />
 </head>
 <body>
 <header>
@@ -302,7 +302,8 @@
       <label title="Qwen text encoder / CLIP in models/text_encoders on the H3 volume.">Text Encoder / CLIP<select id="h3_text_encoder"><option value="qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors">qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors</option></select></label>
       <label title="Video decoder VAE in models/vae on the H3 volume.">Video VAE<select id="h3_video_vae"><option value="minimax_h3_video_vae_fp16.safetensors">minimax_h3_video_vae_fp16.safetensors</option></select></label>
       <label title="Audio decoder VAE in models/vae on the H3 volume.">Audio VAE<select id="h3_audio_vae"><option value="minimax_h3_audio_vae_fp32.safetensors">minimax_h3_audio_vae_fp32.safetensors</option></select></label>
-      <label title="Quickly configure the stock Turbo workflow or either setting recommended by the 10Eros model author.">Sampling Preset<select id="h3_sampling_preset" onchange="applyH3SamplingPreset(this.value)"><option value="pdd8">PDD quality / speed - 8 steps (converted LoRA)</option><option value="stock_turbo">Stock H3 Turbo LoRA</option><option value="10eros_multires">10Eros Turbo — Multires</option><option value="10eros_er_sde">10Eros Turbo — ER-SDE</option><option value="custom">Custom (not baseline-tested)</option></select></label>
+      <label title="Quickly configure the stock Turbo workflow or either setting recommended by the 10Eros model author.">Sampling Preset<select id="h3_sampling_preset" onchange="applyH3SamplingPreset(this.value)"><option value="standard20">Standard / no Turbo - 20 steps</option><option value="lightx4">LightX2V - 4 steps (task matched)</option><option value="lightx8">LightX2V - 8 steps (task matched)</option><option value="pdd8">PDD quality / speed - 8 steps (converted LoRA)</option><option value="stock_turbo">Stock H3 Turbo LoRA</option><option value="10eros_multires">10Eros Turbo — Multires</option><option value="10eros_er_sde">10Eros Turbo — ER-SDE</option><option value="custom">Custom (not baseline-tested)</option></select></label>
+      <div class="hint">Upstream ComfyUI workflows: <a href="/static/workflows/h3/video_minimax_h3_t2v_lightx2v_turbo.json" download>T2V</a> · <a href="/static/workflows/h3/video_minimax_h3_i2v_lightx2v_turbo.json" download>I2V</a> · <a href="/static/workflows/h3/video_minimax_h3_ref2v_lightx2v_turbo.json" download>Ref2V</a></div>
       <label title="Apply the endpoint's separate H3 Turbo LoRA. Leave this off for checkpoints that already have Turbo merged into them."><input id="h3_turbo_enabled" type="checkbox" checked> Apply separate Turbo LoRA</label>
       <label>Turbo LoRA family<select id="h3_turbo_family" onchange="selectH3TurboFamily(this.value)"><option value="auto">Auto from selected file</option><option value="larry">Larry Turbo</option><option value="lightx2v">LightX2V Turbo (task matched)</option></select></label>
       <label title="Turbo LoRA under models/loras/H3. The console adds the required H3/ worker prefix.">Turbo LoRA<select id="h3_turbo_lora"><option value="minimax_h3_turbo_v4_step600_ema.safetensors">minimax_h3_turbo_v4_step600_ema.safetensors</option></select></label>
@@ -566,7 +567,7 @@
   </div>
   <pre id="log"></pre>
 </section>
-<script src="/static/app.js?v=15.62"></script>
+<script src="/static/app.js?v=15.63"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
 </body>
 </html>

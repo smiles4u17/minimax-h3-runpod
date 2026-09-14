@@ -79,6 +79,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_lightx_uses_standard_loader_and_task_specific_shifts(self):
         for task, name, shift in (("t2v", "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors", 6),
+                                  ("t2v", "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", 12),
                                   ("r2v", "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", 12)):
             (handler.COMFY_ROOT / "models" / "loras" / name).write_bytes(b"fixture")
             graph, meta = handler.build_preset({"task": task, "prompt": "robot", "steps": 32,

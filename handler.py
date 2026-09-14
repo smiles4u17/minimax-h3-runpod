@@ -366,7 +366,7 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
             workflow["152"] = {"class_type": "LoraLoaderModelOnly", "inputs": {
                 "model": model, "lora_name": turbo_name, "strength_model": turbo_strength}}
             workflow["9162"] = {"class_type": "MiniMaxH3SigmaShift", "inputs": {
-                "model": ["152", 0], "shift_video": 12.0 if is_ref else 6.0, "shift_audio": 3.0}}
+                "model": ["152", 0], "shift_video": 12.0 if is_ref or "_768p_" not in turbo_name else 6.0, "shift_audio": 3.0}}
             model = ["9162", 0]
         else:
             workflow["152"]["inputs"].update(model=model, lora_name=turbo_name, strength=turbo_strength)
