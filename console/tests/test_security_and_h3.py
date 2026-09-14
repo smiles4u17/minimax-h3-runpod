@@ -16,6 +16,74 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_samimate_custom_prompt_and_generation_controls_reach_worker(self):
+        captured = []
+        data = {"settings": {"runpod_api_key": "key", "h3_endpoint_id": "test-h3"},
+                "source_workflow": "samimate", "generation_backend": "h3", "task": "fl2v",
+                "prompt_mode": "custom", "prompt": "My exact edited prompt", "reference_paths": ["a.png"],
+                "source_video_path": "source.mkv", "mask_path": "mask.mp4", "width": 832, "height": 480,
+                "ref2va_model": "chosen_ref2va.safetensors", "sampler": "euler", "scheduler": "simple",
+                "steps": 8, "turbo_enabled": True, "turbo_family": "lightx2v",
+                "turbo_lora": "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors"}
+        with (mock.patch.object(media_console, "video_probe", return_value={"fps": 24}),
+              mock.patch.object(media_console, "samimate_frame_count", return_value=48),
+              mock.patch.object(media_console, "configured_s3_helper", return_value=object()),
+              mock.patch.object(media_console, "h3_asset_payload", return_value={"name": "asset", "data": "mock"}),
+              mock.patch.object(media_console, "record_job_event"),
+              mock.patch.object(media_console, "submit", side_effect=lambda e,k,p,s: captured.append(p) or {"id": "test"})):
+            response = self.client.post('/api/run/h3', json=data)
+        self.assertEqual(response.status_code, 200, response.text)
+        p = captured[0]
+        self.assertEqual(p['task'], 'r2v_masked')
+        self.assertEqual(p['prompt'], data['prompt'])
+        self.assertEqual(p['model'], 'chosen_ref2va.safetensors')
+        self.assertEqual(p['steps'], 8)
+        self.assertTrue(p['turbo_enabled'])
+        self.assertEqual(p['sampler'], 'euler')
+
+    def test_full_h3_preview_does_not_submit_or_upload(self):
+        data = {"settings": {"runpod_api_key": "key", "h3_endpoint_id": "test-h3"},
+                "source_workflow": "samimate", "generation_backend": "h3", "prompt": "replace",
+                "reference_paths": ["identity.png"], "turbo_enabled": False, "sampler": "euler"}
+        with (mock.patch.object(media_console, "configured_s3_helper", return_value=object()),
+              mock.patch.object(media_console, "submit") as submit,
+              mock.patch.object(media_console, "record_job_event") as record):
+            response = self.client.post('/api/payload/preview/samimate', json=data)
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()['payload']
+        self.assertEqual(payload['task'], 'r2v_masked')
+        self.assertIn('masked_edit', payload)
+        self.assertIn('model', payload)
+        self.assertIn('preview_source', payload['references'][0])
+        submit.assert_not_called()
+        record.assert_not_called()
+        self.assertFalse(media_console.H3_PREVIEW.get())
+
+    def test_mismatched_lightx_is_rejected_before_upload_or_submission(self):
+        for family in ('auto', 'lightx2v'):
+            for task, filename in (('r2v', 'fl2v'), ('t2v', 'ref2v')):
+                with self.subTest(family=family, task=task):
+                    data = {"settings": {"runpod_api_key": "key", "h3_endpoint_id": "test-h3"},
+                            "task": task, "prompt": "robot", "reference_paths": ["robot.png"],
+                            "turbo_enabled": True, "turbo_family": family, "sampler": "euler",
+                            "turbo_lora": f"H3/minimax_h3_{filename}_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors"}
+                    with (mock.patch.object(media_console, "configured_s3_helper", return_value=object()),
+                          mock.patch.object(media_console, "h3_asset_payload") as upload,
+                          mock.patch.object(media_console, "submit") as submit):
+                        response = self.client.post('/api/run/h3', json=data)
+                    self.assertEqual(response.status_code, 400, response.text)
+                    self.assertIn('does not match', response.text)
+                    upload.assert_not_called()
+                    submit.assert_not_called()
+
+    def test_ref2v_eight_step_lightx_remains_valid(self):
+        name = 'H3/minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors'
+        for family in ('auto', 'lightx2v'):
+            media_console.validate_h3_turbo('r2v', name, family, 'euler')
+        hints = media_console.explain_error_text('LightX2V LoRA does not match the current FL2V/Ref2V task')
+        self.assertIn('Ref2V', hints[0])
+        self.assertNotIn('No known pattern', hints[0])
+
     def test_h3_steps_above_training_threshold_survive_submission(self):
         captured = []
         data = {"settings": {"runpod_api_key": "key", "h3_endpoint_id": "test-h3"},

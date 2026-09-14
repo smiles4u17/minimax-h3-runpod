@@ -1,3 +1,5 @@
+import asyncio
+from unittest import mock
 import subprocess
 import tempfile
 import unittest
@@ -7,6 +9,57 @@ import app
 
 
 class SAMimateH3Tests(unittest.TestCase):
+    def test_mask_cache_reuses_and_invalidates_source_and_segmentation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'source.mp4';source.write_bytes(b'video one')
+            call_count = []
+            def prepare(data):
+                n = len(call_count)
+                a = root / f'source{n}.mkv';b = root / f'plate{n}.mkv'
+                a.write_bytes(b'source');b.write_bytes(b'plate')
+                return {'source_path':str(a),'composite_source_path':str(b),'frame_count':48,'duration':2}
+            async def segment(data):
+                call_count.append(data)
+                folder = Path(data['output_dir'])
+                mask=folder/'mask.mp4';inv=folder/'inv.mp4';mask.write_bytes(b'mask');inv.write_bytes(b'inv')
+                return {'mask_video_path':str(mask),'inverted_mask_video_path':str(inv)}
+            data={'video_path':str(source),'video_start':'0','segmentation':{'text_prompt':'person'}}
+            with (mock.patch.object(app,'samimate_mask_root',return_value=root),
+                  mock.patch.object(app,'local_probe_video_path',side_effect=lambda p:p),
+                  mock.patch.object(app,'prepare_samimate_h3',side_effect=prepare),
+                  mock.patch.object(app,'sam_run',side_effect=segment)):
+                a=asyncio.run(app.prepare_samimate_masks(data))
+                b=asyncio.run(app.prepare_samimate_masks(dict(data,prompt='new prompt',steps=8,width=1024)))
+                self.assertTrue(b['reused']);self.assertEqual(a['key'],b['key']);self.assertEqual(len(call_count),1)
+                source.write_bytes(b'video two')
+                c=asyncio.run(app.prepare_samimate_masks(data));self.assertFalse(c['reused'])
+                d=asyncio.run(app.prepare_samimate_masks(dict(data,segmentation={'text_prompt':'face'})))
+                self.assertNotEqual(c['key'],d['key']);self.assertEqual(len(call_count),3)
+                Path(d['masks']['mask_video_path']).unlink()
+                self.assertIsNone(app.samimate_cached_masks(d['key']))
+
+    def test_real_mask_pair_and_cached_preparation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'neutral.mkv';cache=root/'cache';cache.mkdir();sam=root/'sam';sam.mkdir()
+            subprocess.run([app.ffmpeg_bin(),'-y','-v','error','-f','lavfi','-i','testsrc2=size=96x64:rate=24',
+                            '-t','2','-c:v','ffv1',str(source)],check=True,capture_output=True)
+            request={'video_path':str(source),'segmentation':{'backend':'local_test','text_prompt':'person'}}
+            with (mock.patch.object(app,'samimate_mask_root',return_value=cache),
+                  mock.patch.object(app,'TEMP_DIR',root),mock.patch.object(app,'SAM_DIR',sam),
+                  mock.patch.object(app,'sam_record')):
+                result=asyncio.run(app.prepare_samimate_masks(request))
+                again=asyncio.run(app.prepare_samimate_masks(request))
+                self.assertTrue(again['reused'])
+                for key in ('mask_video_path','inverted_mask_video_path'):
+                    self.assertEqual(app.samimate_frame_count(result['masks'][key]),48)
+                    self.assertAlmostEqual(app.video_probe(result['masks'][key])['fps'],24)
+                def first_frame(path):
+                    return np.frombuffer(subprocess.check_output([app.ffmpeg_bin(),'-v','error','-i',path,
+                          '-frames:v','1','-f','rawvideo','-pix_fmt','gray','-']),dtype=np.uint8).astype(int)
+                total=first_frame(result['masks']['mask_video_path'])+first_frame(result['masks']['inverted_mask_video_path'])
+                self.assertLess(np.mean(np.abs(total-255)),3)
+
     def test_prompt_groups_all_images_as_one_identity(self):
         prompt = app.samimate_h3_prompt(['a.png', 'b.png', 'c.png'], 'person on the left', 'Keep the red jacket')
         self.assertIn('<Picture 1>, <Picture 2>, <Picture 3>', prompt)

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RunPod Media Console Web</title>
-<link rel="stylesheet" href="/static/styles.css?v=15.54" />
+<link rel="stylesheet" href="/static/styles.css?v=15.61" />
 </head>
 <body>
 <header>
@@ -396,6 +396,17 @@
     </div>
   </div>
   <div class="card"><h3>Video Trimmer / Crop / Frame Cap</h3><div class="videoTools" data-prefix="samimate"></div></div>
+  <div class="card samimateH3Only">
+    <h3>Masks</h3><p class="hint">Prepare once, then reuse while changing the H3 prompt or generation settings. Changing the source, trim, crop or segmentation settings prepares a new mask.</p>
+    <div class="samActions"><button id="samimate_prepare_button" onclick="samimatePrepareMasks()">Prepare / reuse masks</button><button onclick="samimatePrepareMasks(true)">Regenerate masks</button><span id="samimate_mask_status">No masks prepared</span></div>
+    <div class="samimatePreviewGrid"><div><h4>Subject mask</h4><video id="samimate_mask_preview" class="mediaPreview" controls muted></video></div><div><h4>Inverted mask</h4><video id="samimate_inverted_preview" class="mediaPreview" controls muted></video></div></div>
+    <details><summary>Local mask gallery</summary><button onclick="samimateLoadMaskGallery()">Refresh masks</button><div id="samimate_mask_gallery" class="samimatePreviewGrid"></div></details>
+  </div>
+  <div class="card samimateH3Only"><h3>H3 generation settings · Ref2V</h3><p class="hint">These settings are saved independently from the MiniMax H3 page. The source and subject mask always use masked Ref2V. Auto resolution fits the source to H3’s 32-pixel grid and 2-megapixel limit; the final composite retains the source resolution.</p><button onclick="samimateCopyH3Settings()">Copy settings from H3</button><button onclick="loadH3ModelLibrary(false).then(samimateRefreshModelOptions)">Refresh models</button><div id="samimate_h3_controls" class="grid three"></div>
+    <label>Identity LoRAs (JSON)<textarea id="samimate_h3_loras" rows="3">[]</textarea></label>
+    <label>Prompt mode<select id="samimate_prompt_mode"><option value="auto">Build preservation prompt from instructions</option><option value="custom">Use my prompt exactly</option></select></label>
+    <button onclick="samimateEditGeneratedPrompt()">Build prompt and edit</button>
+  </div>
   <div class="card"><h3 id="samimate_options_title">WanAnimate Options</h3>
     <p id="samimate_backend_hint" class="hint">WanAnimate receives the SAM subject mask as its edit area, then the original background is composited back.</p>
     <div class="fields">
@@ -403,6 +414,7 @@
       <label title="Maximum frames SAM3 and SAMimate's WanAnimate pass should process. 0 means full selected trim window. If a frame cap makes the generated SAM mask shorter than the selected trim, the app pads/conforms the mask to the processed video length before Wan and composite.">Mask Frame Cap<input id="samimate_frame_cap" type="number" min="0" value="0"></label>
       <label class="samimateWanOnly" title="WanAnimate workflow mode. Replace is the normal subject replacement workflow.">Mode<select id="samimate_mode"><option value="replace">replace</option><option value="animate">animate</option></select></label>
       <label class="samimateWanOnly" title="SAMimate sends multiple media files, so Auto follows the global delivery setting and should normally use RunPod Volume Path to avoid RunPod's 10MiB request-body limit.">Wan Delivery<select id="samimate_delivery_override"><option value="auto">Auto / use global</option><option value="global">Use global delivery</option><option value="base64">Base64 / direct upload</option><option value="runpod_volume_path">RunPod Volume Path</option><option value="s3_url">S3 URL</option></select></label>
+      <label>Resolution<select id="samimate_resolution" onchange="samimateApplyResolution()"><option value="auto">Auto · match source (H3 canvas fit)</option><option value="custom">Custom width / height</option></select></label>
       <label title="Defaults to the loaded source video width. You can override it after loading.">Width<input id="samimate_width" type="number" value="832"></label>
       <label title="Defaults to the loaded source video height. You can override it after loading.">Height<input id="samimate_height" type="number" value="480"></label>
       <label title="Seed sent to WanAnimate.">Seed<input id="samimate_seed" type="number" value="12345"></label>
@@ -547,7 +559,7 @@
   </div>
   <pre id="log"></pre>
 </section>
-<script src="/static/app.js?v=15.57"></script>
+<script src="/static/app.js?v=15.61"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
 </body>
 </html>

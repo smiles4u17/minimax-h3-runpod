@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64, importlib.util, ipaddress, json, os, re, secrets, shlex, shutil, socket, subprocess, time, uuid, webbrowser, hashlib, urllib.parse, random, sys, math, threading
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Optional
 
@@ -1626,6 +1627,17 @@ def h3_effective_delivery(delivery: str, sources: list[str]) -> tuple[str, int]:
     return mode, estimated
 
 
+def payload_for_inspector(value):
+    if isinstance(value, dict):
+        return {k: (f"<base64 media: {len(v)} characters>" if k == "data" and isinstance(v, str) else payload_for_inspector(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [payload_for_inspector(v) for v in value]
+    return value
+
+
+H3_PREVIEW = ContextVar("h3_preview", default=False)
+
+
 def h3_asset_payload(source: str, kind: str, delivery: str, s3: Optional[S3Helper]) -> dict[str, str]:
     """Build an H3 asset, preferring the endpoint's mounted network volume.
 
@@ -1634,6 +1646,9 @@ def h3_asset_payload(source: str, kind: str, delivery: str, s3: Optional[S3Helpe
     volume, give the worker its mounted path instead.
     """
     raw = str(source or "").strip()
+    if H3_PREVIEW.get() and raw and not is_url(raw) and not is_s3_uri(raw):
+        # Keep the complete graph payload, without uploading or embedding media.
+        return {"name": Path(raw).name, "preview_source": raw, "preview_delivery": delivery}
     if not raw:
         raise ValueError(f"H3 {kind.replace('_', ' ')} is required")
     fallback_name = f"{kind}.bin"
@@ -2177,6 +2192,8 @@ def redact_for_ui(data: Any) -> Any:
 def explain_error_text(text: str) -> list[str]:
     t = text or ""
     hints: list[str] = []
+    if "lora does not match" in t.lower():
+        hints.append("Match the LightX2V Turbo LoRA to the task: Ref2V uses a ref2v file; FL2V and text-only use an fl2v file. Check the failed job ID: a later submission may already use the corrected file.")
     if "endpoint not found" in t.lower() or "404" in t:
         hints.append("Endpoint ID or API-key access is wrong. Check the selected endpoint profile and RunPod endpoint ID.")
     if "queue_prompt" in t or "HTTP Error 400" in t:
@@ -2721,6 +2738,13 @@ async def validate_tab(tab: str, data: dict[str, Any]):
     return validation_result(tab, data)
 @app.post("/api/payload/preview/{tab}")
 async def payload_preview(tab: str, data: dict[str, Any]):
+    if tab == "h3" or (tab == "samimate" and data.get("generation_backend") == "h3"):
+        token = H3_PREVIEW.set(True)
+        try:
+            result = await run_h3(dict(data))
+            return {"tab": tab, **result, "note": "Full worker input. Local media transport is shown as preview_source/preview_delivery until submission; no uploads or GPU job were created."}
+        finally:
+            H3_PREVIEW.reset(token)
     return {"tab": tab, "payload": redact_for_ui(data), "validation": validation_result(tab, data)}
 @app.post("/api/media/repair")
 async def repair_media(data: dict[str, Any]):
@@ -2746,6 +2770,15 @@ async def wan_align_mask_preview(data: dict[str, Any]):
         raise
     except Exception as e:
         raise HTTPException(400, str(e))
+@app.get("/api/uploads/recent")
+def recent_uploads(kind: str = "video"):
+    if kind not in {"video", "image", "audio"}:
+        raise HTTPException(400, "Unsupported upload kind")
+    folder = UPLOAD_DIR / kind
+    files = sorted((p for p in folder.glob("*") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)[:30]
+    return {"items": [{"path": str(p), "name": p.name} for p in files]}
+
+
 @app.get("/api/outputs/recent")
 def get_recent_outputs(limit: int = 40):
     return {"items": recent_outputs(limit)}
@@ -4086,6 +4119,98 @@ def prepare_samimate_h3(data: dict[str, Any]):
         raise HTTPException(400, str(e)) from e
 
 
+SAMIMATE_MASK_LOCK = threading.Lock()
+
+
+def samimate_mask_root():
+    root = Path(__file__).parent / "cache" / "samimate_masks"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def samimate_mask_signature(data):
+    source = Path(local_probe_video_path(str(data.get("video_path") or "")))
+    digest = hashlib.sha256()
+    with source.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    segmentation = dict(data.get("segmentation") or {})
+    for key in ("hf_token", "output_dir", "source_path", "settings"):
+        segmentation.pop(key, None)
+    sam_config = settings().get("sam", {})
+    config = {k: sam_config.get(k) for k in ("backend", "sam3_python", "external_command")}
+    spec = {"version": 1, "source_sha256": digest.hexdigest(),
+            "trim": {k: data.get(k) for k in ("video_start", "video_end", "video_crop", "video_frame_cap", "mask_frame_cap")},
+            "segmentation": segmentation, "config": config}
+    key = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()
+    return key, str(source)
+
+
+def samimate_cached_masks(key):
+    if not re.fullmatch(r"[a-f0-9]{64}", key):
+        return None
+    result = load_json(samimate_mask_root() / key / "manifest.json", {})
+    required = [result.get("prepared", {}).get(k) for k in ("source_path", "composite_source_path")]
+    required += [result.get("masks", {}).get(k) for k in ("mask_video_path", "inverted_mask_video_path")]
+    if not result or not all(p and Path(p).is_file() for p in required):
+        return None
+    return result
+
+
+@app.post("/api/samimate/masks")
+async def prepare_samimate_masks(data: dict[str, Any]):
+    # SAM runs are serialized locally; cache writes are published only on success.
+    with SAMIMATE_MASK_LOCK:
+        try:
+            key, source = samimate_mask_signature(data)
+            cached = samimate_cached_masks(key)
+            if cached and not data.get("force"):
+                cached["reused"] = True
+                return cached
+            folder = samimate_mask_root() / key
+            folder.mkdir(exist_ok=True)
+            generation_folder = folder / uuid.uuid4().hex
+            generation_folder.mkdir()
+            prepared = prepare_samimate_h3({**data, "video_path": source, "width": 32, "height": 32})
+            # Keep authoritative sources outside the temporary-file cleanup area.
+            for field in ("source_path", "composite_source_path"):
+                destination = generation_folder / (field + ".mkv")
+                shutil.move(prepared[field], destination)
+                prepared[field] = str(destination)
+            seg = dict(data.get("segmentation") or {})
+            seg.update(source_path=prepared["source_path"], source_type="video", frame_time=0,
+                       video_start=0, video_end="", video_crop=None, preprocess_fps=24, fps=24,
+                       source_workflow="samimate", invert=False, make_masked_video=True,
+                       output_dir=str(generation_folder), samimate_mask_frame_cap=prepared["frame_count"],
+                       video_frame_cap=prepared["frame_count"])
+            masks = await sam_run(seg)
+            result = {"key": key, "source": source, "request": {k: data.get(k) for k in ("video_start", "video_end", "video_crop", "video_frame_cap", "mask_frame_cap")},
+                      "segmentation": {k: v for k, v in seg.items() if k in ("text_prompt", "prompt_mode", "points", "box", "backend")},
+                      "prepared": prepared, "masks": masks, "created": time.strftime("%Y-%m-%d %H:%M:%S"), "reused": False}
+            (folder / "manifest.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+            return result
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/samimate/masks")
+def samimate_mask_gallery():
+    items = []
+    for manifest in samimate_mask_root().glob("*/manifest.json"):
+        result = samimate_cached_masks(manifest.parent.name)
+        if result:
+            items.append(result)
+    known = {i["masks"].get("mask_video_path") for i in items}
+    for entry in load_json(SAM_HISTORY_PATH, []):
+        path = entry.get("mask_video_path")
+        if path and path not in known and Path(path).is_file():
+            items.append({"source": entry.get("source_path", ""), "masks": entry, "created": entry.get("time", ""), "legacy": True})
+            known.add(path)
+    return {"items": sorted(items, key=lambda i: i.get("created", ""), reverse=True)[:100]}
+
+
 @app.post("/api/samimate/run-folder")
 async def samimate_run_folder():
     try:
@@ -4383,6 +4508,23 @@ async def run_wan(data: dict[str,Any]):
     record_job_event({"target": "samimate" if data.get("source_workflow") == "samimate" else "wan", "endpoint_id": endpoint, "job_id": job.get("id"), "status": "SUBMITTED", "payload_keys": sorted(payload.keys()), "debug": debug})
     return {"job": job, "endpoint_id": endpoint, "payload_keys": sorted(payload.keys()), "debug": debug}
 
+def validate_h3_turbo(task: str, name: str, family: str, sampler: str) -> None:
+    lower = name.lower()
+    lightx = "_comfyui_" in lower and "minimax_h3_" in lower
+    family = (family or "auto").lower()
+    if family not in {"auto", "larry", "lightx2v"}:
+        raise ValueError("Turbo family must be auto, larry or lightx2v")
+    if lightx and family == "larry":
+        raise ValueError("The selected LightX2V LoRA requires Auto or the LightX2V Turbo family")
+    if lightx or family == "lightx2v":
+        is_ref = task in {"r2v", "r2v_masked"}
+        if (is_ref and "_fl2v_" in lower) or (not is_ref and "_ref2v_" in lower):
+            expected = "Ref2V (ref2v)" if is_ref else "FL2V (fl2v)"
+            raise ValueError(f"LightX2V LoRA does not match task {task}: {name}. Select a {expected} Turbo LoRA before submitting.")
+        if sampler == "h3_turbo":
+            raise ValueError("LightX2V requires Euler or another regular sampler, not h3_turbo")
+
+
 def validate_h3_steps(value: Any) -> int:
     try:
         number = float(value)
@@ -4398,20 +4540,29 @@ async def run_h3(data: dict[str, Any]):
         data = dict(data)
         try:
             refs = h3_path_list(data.get("reference_paths"), 9, "SAMimate identity images")
-            if not data.get("source_video_path") or not data.get("mask_path"):
-                raise ValueError("SAMimate H3 requires the prepared source and SAM subject mask")
-            source_info = video_probe(local_media_path(data["source_video_path"]))
-            mask_info = video_probe(local_media_path(data["mask_path"]))
-            if any(abs(float(i.get("fps") or 0) - 24) > 0.05 for i in (source_info, mask_info)):
-                raise ValueError("SAMimate source and mask must both be prepared at 24 fps")
-            source_count = samimate_frame_count(data["source_video_path"])
-            if source_count != samimate_frame_count(data["mask_path"]):
-                raise ValueError("SAMimate source and tracked mask frame counts differ; rerun segmentation")
+            if H3_PREVIEW.get() and (not data.get("source_video_path") or not data.get("mask_path")):
+                data.update(source_video_path="<prepared source pending>", mask_path="<subject mask pending>")
+                source_count = round(float(data.get("duration") or 2) * 24)
+            else:
+                if not data.get("source_video_path") or not data.get("mask_path"):
+                    raise ValueError("SAMimate H3 requires the prepared source and SAM subject mask")
+                source_info = video_probe(local_media_path(data["source_video_path"]))
+                mask_info = video_probe(local_media_path(data["mask_path"]))
+                if any(abs(float(i.get("fps") or 0) - 24) > 0.05 for i in (source_info, mask_info)):
+                    raise ValueError("SAMimate source and mask must both be prepared at 24 fps")
+                source_count = samimate_frame_count(data["source_video_path"])
+                if source_count != samimate_frame_count(data["mask_path"]):
+                    raise ValueError("SAMimate source and tracked mask frame counts differ; rerun segmentation")
             if any("Acc-8Step" in str(item.get("name", "")) for item in data.get("loras", []) if isinstance(item, dict)):
                 raise ValueError("Remove the PDD acceleration LoRA before running the SAMimate masked baseline")
+            width = max(32, round(int(data.get("width") or 832) / 32) * 32)
+            height = max(32, round(int(data.get("height") or 480) / 32) * 32)
+            if max(width, height) > 4096 or width * height > 2_000_000:
+                raise ValueError("Choose an H3 generation canvas of at most 2 megapixels")
+            data.update(width=width, height=height)
             data.update(task="r2v", duration=source_count / 24, reference_video_paths=[], reference_audio_paths=[],
                         audio_path="", use_reference_audio_as_output=False,
-                        prompt=samimate_h3_prompt(refs, str(data.get("subject_prompt") or "person"), str(data.get("prompt") or "")))
+                        prompt=(str(data.get("prompt") or "").strip() if data.get("prompt_mode") == "custom" else samimate_h3_prompt(refs, str(data.get("subject_prompt") or "person"), str(data.get("prompt") or ""))))
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
     s = runtime_settings(data.get("settings", {}))
@@ -4466,6 +4617,8 @@ async def run_h3(data: dict[str, Any]):
         audio_vae = h3_model_name(data.get("audio_vae") or h3_defaults.get("audio_vae"), "audio VAE")
         clip_projection = h3_model_name(data.get("clip_projection") or h3_defaults.get("clip_projection"), "CLIP projection", required=False)
         turbo_lora = h3_worker_lora_name(str(data.get("turbo_lora") or h3_defaults.get("turbo_lora") or "")) if turbo_enabled else ""
+        if turbo_enabled:
+            validate_h3_turbo(task, turbo_lora, str(data.get("turbo_family") or "auto"), sampler)
         turbo_strength = float(data.get("turbo_strength") if data.get("turbo_strength") is not None else h3_defaults.get("turbo_strength", 1.0))
     except (TypeError, ValueError) as e:
         raise HTTPException(400, f"Invalid H3 model configuration: {e}") from e
@@ -4662,13 +4815,15 @@ async def run_h3(data: dict[str, Any]):
         "output_layout": "flat_outputs",
         "output_volume_dir": "/runpod-volume/outputs",
     }
+    if H3_PREVIEW.get():
+        return {"endpoint_id": endpoint, "payload": payload, "debug": debug}
     try:
         job = submit(endpoint, key, payload, s)
     except HTTPException as e:
         record_job_event({"target": "h3", "endpoint_id": endpoint, "job_id": None, "status": "SUBMIT_FAILED", "payload_keys": sorted(payload.keys()), "debug": debug, "error": e.detail})
         raise HTTPException(e.status_code, {"message": e.detail, "debug": debug, "payload_keys": sorted(payload.keys())}) from e
     record_job_event({"target": "h3", "endpoint_id": endpoint, "job_id": job.get("id"), "status": "SUBMITTED", "payload_keys": sorted(payload.keys()), "debug": debug})
-    return {"job": job, "endpoint_id": endpoint, "payload_keys": sorted(payload.keys()), "debug": debug}
+    return {"job": job, "endpoint_id": endpoint, "payload_keys": sorted(payload.keys()), "debug": debug, "payload": payload_for_inspector(payload)}
 
 @app.get("/api/job/{endpoint_id}/{job_id}")
 def job_status(endpoint_id: str, job_id: str):
