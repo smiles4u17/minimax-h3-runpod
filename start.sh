@@ -4,6 +4,13 @@ set -Eeuo pipefail
 COMFY_ROOT="${COMFY_ROOT:-/comfyui}"
 COMFY_HOST="${COMFY_HOST:-127.0.0.1}"
 COMFY_PORT="${COMFY_PORT:-8188}"
+export H3_COMFY_LOG="${H3_COMFY_LOG:-/tmp/h3-comfy.log}"
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+# A missing mount must fail closed, not turn into an empty local model directory.
+if ! mountpoint -q "${RUNPOD_VOLUME_ROOT:-/runpod-volume}"; then
+  echo "Required network volume is not mounted; refusing to start or download models." >&2
+  exit 1
+fi
 
 GPU_MEMORY_MB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | sed -n '1p' | tr -dc '0-9' || true)"
 if [[ "$GPU_MEMORY_MB" =~ ^[0-9]+$ ]]; then
@@ -36,7 +43,7 @@ python3.12 "$COMFY_ROOT/main.py" \
   --port "$COMFY_PORT" \
   --extra-model-paths-config /opt/minimax-h3/extra_model_paths.yaml \
   "${LOW_VRAM_ARGS[@]}" \
-  "${USER_COMFY_ARGS[@]}" &
+  "${USER_COMFY_ARGS[@]}" > >(tee "$H3_COMFY_LOG") 2>&1 &
 COMFY_PID=$!
 
 shutdown() {

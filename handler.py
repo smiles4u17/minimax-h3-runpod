@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 import requests
 import runpod
+from telemetry import JobTelemetry, is_oom, runtime_inventory
 
 
 COMFY_ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
@@ -42,7 +43,7 @@ LOW_VRAM_THRESHOLD_GB = float(os.environ.get("H3_LOW_VRAM_THRESHOLD_GB", "48"))
 BLACKWELL_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 UNIVERSAL_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 SAGE_CAPABILITIES = {(12, 0)}
-SAMPLERS = {"h3_turbo", "res_multistep", "er_sde", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "deis", "uni_pc"}
+SAMPLERS = set(json.loads((Path(__file__).parent / 'h3_sampling.json').read_text())['samplers'])
 SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
 
 _COMFY_PROCESS: subprocess.Popen[Any] | None = None
@@ -101,7 +102,8 @@ def _ensure_comfy_ready(timeout: int = COMFY_START_TIMEOUT) -> None:
                 *_comfy_launch_args(),
             ]
             print("ComfyUI is unavailable; starting a replacement process.", flush=True)
-            _COMFY_PROCESS = subprocess.Popen(command, cwd=str(COMFY_ROOT))
+            with open(os.environ.get('H3_COMFY_LOG', '/tmp/h3-comfy.log'), 'ab', buffering=0) as log_file:
+                _COMFY_PROCESS = subprocess.Popen(command, cwd=str(COMFY_ROOT), stdout=log_file, stderr=subprocess.STDOUT)
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -701,8 +703,8 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
     return workflow, metadata
 
 
-def _submit(workflow: dict[str, Any]) -> str:
-    request_body = {"prompt": workflow, "client_id": uuid.uuid4().hex}
+def _submit(workflow: dict[str, Any], client_id: str | None = None) -> str:
+    request_body = {"prompt": workflow, "client_id": client_id or uuid.uuid4().hex}
     try:
         response = requests.post(f"{COMFY_URL}/prompt", json=request_body, timeout=60)
     except requests.ConnectionError:
@@ -716,9 +718,11 @@ def _submit(workflow: dict[str, Any]) -> str:
     return str(body["prompt_id"])
 
 
-def _wait_for_history(prompt_id: str) -> dict[str, Any]:
+def _wait_for_history(prompt_id: str, telemetry=None) -> dict[str, Any]:
     deadline = time.monotonic() + JOB_TIMEOUT
-    while time.monotonic() < deadline:
+    while telemetry is not None or time.monotonic() < deadline:
+        if telemetry is not None:
+            telemetry.check()
         response = requests.get(f"{COMFY_URL}/history/{prompt_id}", timeout=30)
         response.raise_for_status()
         body = response.json()
@@ -847,8 +851,25 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
     payload = job.get("input")
     if not isinstance(payload, dict):
         return {"error": "input must be an object"}
+    monitor = None
     try:
+        max_seconds = int(payload.get('max_runtime_seconds', os.environ.get('H3_MAX_RUNTIME_SECONDS', '14400')))
+        idle_seconds = int(payload.get('idle_timeout_seconds', os.environ.get('H3_IDLE_TIMEOUT_SECONDS', '1800')))
+        if not 60 <= idle_seconds <= max_seconds <= 86400:
+            raise InputError('Timeouts require 60 <= inactivity <= maximum runtime <= 86400 seconds')
+        monitor = JobTelemetry(job, VOLUME_ROOT, COMFY_URL, max_seconds, idle_seconds)
+        monitor.stage('worker_received')
         _ensure_comfy_ready()
+        inventory = runtime_inventory(COMFY_URL, VOLUME_ROOT)
+        global SAMPLERS, SCHEDULERS
+        SAMPLERS = set(inventory['samplers'])
+        SCHEDULERS = set(inventory['schedulers'])
+        monitor.state['capabilities'] = inventory
+        monitor.start()
+        if payload.get('action') == 'diagnostics':
+            monitor.stage('diagnostics_complete')
+            return {'diagnostics': inventory, 'worker_id': monitor.state['worker_id']}
+        monitor.stage('preparing_inputs')
         if "workflow" in payload:
             workflow = payload["workflow"]
             if not isinstance(workflow, dict):
@@ -858,8 +879,23 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
                 _materialize_asset(asset, f"asset_{index}", preserve_name=True)
         else:
             workflow, metadata = build_preset(payload)
-        prompt_id = _submit(workflow)
-        history = _wait_for_history(prompt_id)
+        # Resolve exactly what the assembled graph will load, including GPU-specific encoder substitution.
+        fields = {'unet_name': 'diffusion_models', 'ckpt_name': 'checkpoints',
+                  'clip_name': 'text_encoders', 'clip_name1': 'text_encoders',
+                  'clip_name2': 'text_encoders', 'vae_name': 'vae', 'lora_name': 'loras'}
+        models = [{'category': fields[k], 'name': v} for node in workflow.values()
+                  for k, v in node.get('inputs', {}).items() if k in fields and isinstance(v, str)]
+        resolved = requests.post(COMFY_URL + '/h3/resolve-models', json={'models': models}, timeout=30)
+        if resolved.status_code >= 400:
+            raise InputError(resolved.text[:2000])
+        monitor.state['models'] = resolved.json()['models']
+        monitor.node_names = {str(k): v.get('class_type', str(k)) for k, v in workflow.items()}
+        monitor.stage('submitting_to_comfy', metadata=metadata)
+        prompt_id = _submit(workflow, monitor.client_id)
+        monitor.prompt_id = prompt_id
+        monitor.stage('comfy_accepted', prompt_id=prompt_id)
+        history = _wait_for_history(prompt_id, monitor)
+        monitor.stage('exporting')
         descriptors = _find_file_descriptors(history.get("outputs", {}))
         unique: list[Path] = []
         seen: set[Path] = set()
@@ -872,11 +908,27 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError("The workflow completed but returned no output files.")
         job_id = str(job.get("id") or prompt_id)
         files = [_deliver(path, payload, job_id, index) for index, path in enumerate(unique)]
+        monitor.stage('completed', files=[{'filename': f['filename'], 'size': f['size']} for f in files])
         return {"files": files, "metadata": metadata, "prompt_id": prompt_id}
     except InputError as exc:
+        if monitor:
+            monitor.stage('invalid_input', error=str(exc)[:2000])
         return {"error": str(exc), "error_type": "invalid_input"}
     except Exception as exc:
-        return {"error": str(exc), "error_type": type(exc).__name__}
+        oom = is_oom(exc) or bool(monitor and monitor.state.get('oom'))
+        try:
+            requests.post(COMFY_URL + '/interrupt', timeout=5)
+        except Exception:
+            pass
+        # A failed CUDA/Comfy process must not poison the next queued request.
+        refresh = oom or isinstance(exc, TimeoutError) or not _comfy_ready()
+        if monitor:
+            monitor.stage('failed', error=str(exc)[:2000], oom=oom, refresh_worker=refresh)
+        return {"error": str(exc), "error_type": 'out_of_memory' if oom else type(exc).__name__,
+                'refresh_worker': refresh, 'recovery': 'Worker refresh requested; job was not resubmitted' if refresh else 'Inspect diagnostics before retrying'}
+    finally:
+        if monitor:
+            monitor.close()
 
 
 if __name__ == "__main__":

@@ -68,10 +68,11 @@ RUN python3.12 -m pip install --no-cache-dir \
       --constraint /opt/comfyui-runtime-constraints.txt \
       -r /opt/minimax-h3/requirements-handler.txt
 
-COPY handler.py start.sh extra_model_paths.yaml /opt/minimax-h3/
+COPY handler.py telemetry.py h3_sampling.json start.sh extra_model_paths.yaml /opt/minimax-h3/
 COPY scripts /opt/minimax-h3/scripts
 COPY workflows /opt/minimax-h3/workflows
 COPY custom_nodes/samimate_h3 /comfyui/custom_nodes/samimate_h3
+COPY custom_nodes/h3_runtime /comfyui/custom_nodes/h3_runtime
 RUN chmod +x /opt/minimax-h3/start.sh /opt/minimax-h3/scripts/*.py \
     && cd /comfyui \
     && python3.12 /opt/minimax-h3/scripts/verify_h3_runtime.py \

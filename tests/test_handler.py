@@ -5,6 +5,7 @@ import importlib.util
 import sys
 import tempfile
 import types
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).parents[1]))
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -162,6 +163,7 @@ class WorkflowTests(unittest.TestCase):
         process.poll.return_value = None
         with (
             mock.patch.object(handler, "_comfy_ready", side_effect=[False, False, True]),
+            mock.patch('builtins.open', mock.mock_open()),
             mock.patch.object(handler.subprocess, "Popen", return_value=process) as popen,
         ):
             handler._COMFY_PROCESS = None
