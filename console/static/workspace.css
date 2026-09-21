@@ -14,3 +14,7 @@
 @media(max-width:850px){.dashboardGrid>[data-span="1"][data-side]{grid-column:1}}
 
 .dashboardCard>summary>:not(.cardLayoutBar){display:none!important}.dashboardCard>summary{padding:0!important}.dashboardCard>summary>.cardLayoutBar{padding:10px 12px;box-sizing:border-box}.dashboardCard>summary::marker{content:""}
+
+/* Height-aware dense packing fills gaps between unequal-height tiles. */
+.dashboardGrid{grid-auto-flow:row dense;grid-auto-rows:4px;row-gap:0;column-gap:16px}
+@media(max-width:850px){.dashboardGrid{grid-auto-rows:auto;row-gap:16px}.dashboardGrid>*{grid-row-end:auto!important}}

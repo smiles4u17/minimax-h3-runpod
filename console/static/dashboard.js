@@ -15,6 +15,25 @@ function initializeDashboard(){
     toolbar.innerHTML='<span>Drag a title bar: left or right for half a row; center for a full row.</span><button type="button">Reset section layout</button>';
     section.insertBefore(toolbar,section.firstChild);section.appendChild(grid);
     let activePointerDrag=null,activeClickPick=null,suppressClick=false;
+    // Small grid tracks plus dense placement let later tiles fill vertical holes.
+    // Measure natural card heights again after collapse, uploads, previews or resize.
+    let packingFrame=0;
+    function pack(){
+      packingFrame=0;
+      if(!grid.getBoundingClientRect().width)return;
+      const desktop=window.matchMedia('(min-width:851px)').matches;
+      for(const el of grid.children){
+        if(el.classList.contains('cardDragging'))continue;
+        const rows=desktop?'span '+Math.ceil((el.getBoundingClientRect().height+16)/4):'';
+        if(el.style.gridRowEnd!==rows)el.style.gridRowEnd=rows;
+      }
+    }
+    function queuePacking(){if(!packingFrame)packingFrame=requestAnimationFrame(pack)}
+    const sizeObserver=new ResizeObserver(queuePacking);
+    sizeObserver.observe(grid);
+    const contentObserver=new MutationObserver(queuePacking);
+    contentObserver.observe(grid,{childList:true});
+    window.addEventListener('resize',queuePacking);
     const toolbarHint=toolbar.querySelector('span');
     function clearClickPick(){
       if(!activeClickPick)return;
@@ -92,9 +111,10 @@ function initializeDashboard(){
     });
     const order=(layouts[tab]||[]).map(x=>x.id);
     records.sort((a,b)=>(order.includes(a.id)?order.indexOf(a.id):10000+a.index)-(order.includes(b.id)?order.indexOf(b.id):10000+b.index));
-    for(const r of records)grid.appendChild(r.el);
+    for(const r of records){grid.appendChild(r.el);sizeObserver.observe(r.el)}
+    queuePacking();
     for(const child of [...section.children])if(child.matches('.grid.two,.workflowBoard')&&!child.children.length)child.remove();
-    function save(){layouts[tab]=[...grid.children].map(el=>({id:el.dataset.layoutId,width:Number(el.dataset.span),side:el.dataset.side||'',collapsed:el.tagName==='DETAILS'?!el.open:el.classList.contains('dashboardCollapsed')}));localStorage.setItem(key,JSON.stringify(layouts))}
+    function save(){queuePacking();layouts[tab]=[...grid.children].map(el=>({id:el.dataset.layoutId,width:Number(el.dataset.span),side:el.dataset.side||'',collapsed:el.tagName==='DETAILS'?!el.open:el.classList.contains('dashboardCollapsed')}));localStorage.setItem(key,JSON.stringify(layouts))}
     function finishPointerDrag(e){
       const drag=activePointerDrag;if(!drag||e.pointerId!==drag.pointerId)return;
       if(e.type==='pointercancel'){drag.moved=false;}
@@ -102,6 +122,7 @@ function initializeDashboard(){
       if(drag.moved){drag.el.dataset.span=drag.placeholder.dataset.span;drag.el.dataset.side=drag.placeholder.dataset.side||'';}
       drag.grid.insertBefore(drag.el,drag.placeholder);drag.placeholder.remove();
       drag.el.classList.remove('cardDragging');drag.el.style.removeProperty('width');drag.el.style.removeProperty('position');drag.el.style.removeProperty('left');drag.el.style.removeProperty('top');drag.el.style.removeProperty('z-index');drag.el.style.removeProperty('pointer-events');
+      queuePacking();
       const moved=drag.moved;activePointerDrag=null;if(moved){suppressClick=true;for(const r of records)r.update();save();}
       if(!moved&&drag.pickOnClick){
         activeClickPick={el:drag.el,grid:drag.grid};drag.el.classList.add('cardPicked');drag.grip.setAttribute('aria-pressed','true');toolbarHint.textContent='Click another section handle to drop this tile';suppressClick=true;
@@ -128,6 +149,7 @@ function initializeDashboard(){
         drag.dropTarget=target;
         grid.insertBefore(drag.placeholder,zone==='left'?target:target.nextSibling);
       }
+      queuePacking();
       if(e.clientY>window.innerHeight-70)window.scrollBy(0,18);
       else if(e.clientY<90)window.scrollBy(0,-18);
     });
