@@ -11,7 +11,7 @@ ROOT = Path(os.environ.get('RUNPOD_VOLUME_ROOT', '/runpod-volume')).resolve()
 CATEGORIES = {
     'checkpoints': ['checkpoints'], 'diffusion_models': ['diffusion_models', 'unet'],
     'text_encoders': ['text_encoders', 'clip'], 'vae': ['vae'], 'loras': ['loras'],
-    'clip_vision': ['clip_vision'], 'upscale_models': ['upscale_models'],
+    'latent_upscale_models': ['latent_upscale_models'], 'clip_vision': ['clip_vision'], 'upscale_models': ['upscale_models'],
 }
 for category, subdirs in CATEGORIES.items():
     extensions = folder_paths.folder_names_and_paths.get(category, ([], folder_paths.supported_pt_extensions))[1]

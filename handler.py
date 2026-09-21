@@ -677,6 +677,32 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
 
 
 def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    from h3_workflow_options import workflow_options, variant_defaults
+    from workflow_variants import apply_variant
+    try:
+        options = workflow_options(payload)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+    if options['workflow_variant'] != 'legacy':
+        payload = dict(payload)
+        for field, default in variant_defaults(options).items():
+            payload.setdefault(field, default)
+        expected = 'fl2v' if options['workflow_variant'].startswith('fflf') else 'r2v'
+        if payload.get('task') not in (expected, expected + '_20260920') or payload.get('masked_edit'):
+            raise InputError('Workflow selection does not match task')
+        payload['task'] = expected
+        photos = payload.get('photos', [])
+        if photos:
+            if expected == 'fl2v':
+                payload['first_frame'] = next((p for p in photos if p), None) if options['use_multi_image'] else photos[0]
+                payload['last_frame'] = photos[1] if len(photos) > 1 else None
+            else:
+                payload['references'] = [p for p in photos if p]
+        payload.update(turbo_enabled=True, turbo_family='larry' if options['use_larry'] else 'lightx2v')
+        if options['use_larry']:
+            payload['sampler'] = 'h3_turbo'
+        elif payload.get('sampler') == 'h3_turbo':
+            raise InputError('LightX2V requires a normal sampler')
     task = str(payload.get("task", "")).lower()
     if task == "r2v_masked":
         if not payload.get("masked_edit"):
@@ -699,6 +725,10 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
         _patch_fl2v(workflow, payload)
     else:
         _patch_r2v(workflow, payload)
+    try:
+        metadata.update(apply_variant(workflow, payload, _materialize_asset, _model_name))
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
     metadata["task"] = requested_task
     return workflow, metadata
 
@@ -885,6 +915,8 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
                   'clip_name2': 'text_encoders', 'vae_name': 'vae', 'lora_name': 'loras'}
         models = [{'category': fields[k], 'name': v} for node in workflow.values()
                   for k, v in node.get('inputs', {}).items() if k in fields and isinstance(v, str)]
+        models.extend({'category': 'latent_upscale_models', 'name': node['inputs']['model_name']}
+                      for node in workflow.values() if node.get('class_type') == 'MinimaxH3LatentUpscaler3D')
         resolved = requests.post(COMFY_URL + '/h3/resolve-models', json={'models': models}, timeout=30)
         if resolved.status_code >= 400:
             raise InputError(resolved.text[:2000])

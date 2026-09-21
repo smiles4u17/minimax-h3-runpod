@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RunPod Media Console Web</title>
 <link rel="stylesheet" href="/static/styles.css?v=15.64" />
+<link rel="stylesheet" href="/static/workspace.css?v=15.82" />
 </head>
 <body>
 <header>
@@ -353,7 +354,7 @@
       <label title="Hugging Face file/blob URL, Civitai model/version/download URL, or another direct public HTTPS file URL.">Model URL<input id="model_download_url" type="url" placeholder="https://huggingface.co/org/repo/blob/main/model.safetensors"></label>
       <div class="fields">
         <label>Destination<select id="model_download_category" onchange="refreshModelManagerFiles()">
-          <option value="diffusion_models">Diffusion Models</option><option value="checkpoints">Checkpoints</option><option value="text_encoders">Text Encoders / CLIP</option><option value="clip">CLIP</option><option value="clip_vision">CLIP Vision</option><option value="vae">VAE</option><option value="loras">H3 LoRAs</option><option value="controlnet">ControlNet</option><option value="embeddings">Embeddings</option><option value="upscale_models">Upscale Models</option>
+          <option value="diffusion_models">Diffusion Models</option><option value="checkpoints">Checkpoints</option><option value="text_encoders">Text Encoders / CLIP</option><option value="clip">CLIP</option><option value="clip_vision">CLIP Vision</option><option value="vae">VAE</option><option value="loras">H3 LoRAs</option><option value="controlnet">ControlNet</option><option value="embeddings">Embeddings</option><option value="upscale_models">Upscale Models</option><option value="latent_upscale_models">H3 Latent Upscale Models</option>
         </select></label>
         <label title="Optional. Leave blank to use the provider filename.">Filename override<input id="model_download_name" placeholder="optional-name.safetensors"></label>
         <label title="Replace an object with the same destination key."><input id="model_download_overwrite" type="checkbox"> Overwrite existing file</label>
@@ -567,7 +568,10 @@
   </div>
   <pre id="log"></pre>
 </section>
-<script src="/static/app.js?v=15.64"></script>
+<script src="/static/app.js?v=15.77"></script>
+<script src="/static/dashboard.js?v=15.82"></script>
+<script src="/static/h3_variants.js?v=15.82.1"></script>
+<script src="/static/workspace.js?v=15.82"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
 </body>
 </html>

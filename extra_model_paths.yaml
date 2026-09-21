@@ -8,3 +8,4 @@ runpod_volume:
   loras: models/loras
   upscale_models: models/upscale_models
 
+  latent_upscale_models: models/latent_upscale_models

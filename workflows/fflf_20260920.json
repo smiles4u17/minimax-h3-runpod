@@ -1,0 +1,61 @@
+{
+  "source_file": "NEW FFLF 9_20_26.json",
+  "source_sha256": "22d2029f89fcb41587700af396fd086fa68db3c5972c544866d9941bd5d30bcb",
+  "nodes": {
+    "207": {
+      "class_type": "RTXVideoSuperResolution",
+      "widgets": [
+        "target dimensions",
+        1920,
+        1080,
+        "ULTRA"
+      ]
+    },
+    "289": {
+      "class_type": "ManualSigmas",
+      "widgets": [
+        "0.9035, 0.6316, 0.3158, 0.0000"
+      ]
+    },
+    "292": {
+      "class_type": "ManualSigmas",
+      "widgets": [
+        "0.9035, 0.8000, 0.6316, 0.3158, 0.0000"
+      ]
+    },
+    "295": {
+      "class_type": "ManualSigmas",
+      "widgets": [
+        "0.9231, 0.8780, 0.8000, 0.6316, 0.3158, 0.0000"
+      ]
+    },
+    "291": {
+      "class_type": "MinimaxH3LatentUpscaler3D",
+      "widgets": [
+        "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+        "target dimensions",
+        1280,
+        704,
+        32,
+        true,
+        false,
+        "cuda",
+        "bf16"
+      ]
+    },
+    "124": {
+      "class_type": "BasicScheduler",
+      "widgets": [
+        "simple",
+        4,
+        1
+      ]
+    },
+    "238": {
+      "class_type": "SplitSigmas",
+      "widgets": [
+        3
+      ]
+    }
+  }
+}

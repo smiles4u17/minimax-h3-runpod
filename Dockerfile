@@ -50,6 +50,14 @@ RUN set -eux; \
       https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git "$VHS_REF"; \
     install_node /comfyui/custom_nodes/ComfyUI-MiniMaxH3-LowVRAM \
       https://github.com/lericogit/ComfyUI-MiniMaxH3-LowVRAM.git "$H3_LOWVRAM_REF"; \
+    install_node /comfyui/custom_nodes/ComfyUI-H3-Multishot \
+      https://github.com/jlucasmcrell/ComfyUI-H3-Multishot.git d7d197709fc93c1afb125e3db1dfd4ac0ae28c60; \
+    install_node /comfyui/custom_nodes/Comfyui_Minimax_h3_latent_Upscaler \
+      https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler.git d7c01b9011f2e8439493f6c02c29995a27df276f; \
+    install_node /comfyui/custom_nodes/Nvidia_RTX_Nodes_ComfyUI \
+      https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI.git 892515e3eb9a4920a131a502a047e47adca9eb0d; \
+    printf '%s\n' 'from .h3_keyframes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS' > /comfyui/custom_nodes/ComfyUI-H3-Multishot/__init__.py; \
+    printf '%s\n' 'nvidia-vfx==0.1.0.1' > /comfyui/custom_nodes/Nvidia_RTX_Nodes_ComfyUI/requirements.txt; \
     for requirements in /comfyui/custom_nodes/*/requirements.txt; do \
       [ ! -f "$requirements" ] || python3.12 -m pip install --no-cache-dir \
         --constraint /opt/comfyui-runtime-constraints.txt -r "$requirements"; \
@@ -68,7 +76,7 @@ RUN python3.12 -m pip install --no-cache-dir \
       --constraint /opt/comfyui-runtime-constraints.txt \
       -r /opt/minimax-h3/requirements-handler.txt
 
-COPY handler.py telemetry.py h3_sampling.json start.sh extra_model_paths.yaml /opt/minimax-h3/
+COPY handler.py telemetry.py workflow_variants.py h3_workflow_options.py h3_sampling.json start.sh extra_model_paths.yaml /opt/minimax-h3/
 COPY scripts /opt/minimax-h3/scripts
 COPY workflows /opt/minimax-h3/workflows
 COPY custom_nodes/samimate_h3 /comfyui/custom_nodes/samimate_h3

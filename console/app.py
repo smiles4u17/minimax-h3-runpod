@@ -12,9 +12,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from output_sync import OutputSync
+from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults
+from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v15.60-output-catch-up"
-H3_SAMPLERS = {"h3_turbo", "res_multistep", "er_sde", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "deis", "uni_pc"}
+APP_VERSION = "web-v15.82-workflow-variants"
+H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
+H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
 H3_INLINE_FILE_LIMIT_BYTES = 6 * 1024 * 1024
 # RunPod rejects request bodies above 10 MiB. Keep enough room for prompts,
@@ -1034,6 +1037,7 @@ H3_MODEL_DESTINATIONS = {
     "controlnet": "models/controlnet",
     "embeddings": "models/embeddings",
     "upscale_models": "models/upscale_models",
+    "latent_upscale_models": "models/latent_upscale_models",
 }
 H3_MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf"}
 H3_MODEL_MAX_BYTES = 64 * 1024 * 1024 * 1024
@@ -1798,7 +1802,11 @@ def policy(s: dict[str,Any]) -> dict[str,int]:
 
 def submit(endpoint: str, key: str, payload: dict[str,Any], s: dict[str,Any]) -> dict[str,Any]:
     try:
-        r=requests.post(f"https://api.runpod.ai/v2/{endpoint}/run", headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"}, json={"input":payload,"policy":policy(s)}, timeout=120); r.raise_for_status(); return r.json()
+        request_policy = policy(s)
+        if 'max_runtime_seconds' in payload:
+            seconds = int(payload['max_runtime_seconds']) + 120
+            request_policy = {'executionTimeout': seconds * 1000, 'ttl': max(seconds * 2, 86400) * 1000}
+        r=requests.post(f"https://api.runpod.ai/v2/{endpoint}/run", headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"}, json={"input":payload,"policy":request_policy}, timeout=120); r.raise_for_status(); return r.json()
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else None
         body = ""
@@ -2239,6 +2247,8 @@ def redact_for_ui(data: Any) -> Any:
 def explain_error_text(text: str) -> list[str]:
     t = text or ""
     hints: list[str] = []
+    if "comfyui job exceeded" in t.lower():
+        hints.append("The worker reached its ComfyUI render time limit and interrupted generation. The displayed percentage is a time estimate, not measured render progress. For H3, check whether Turbo was disabled; select a task-matched LightX2V sampling preset, or reduce duration/resolution. Inspect worker logs before retrying. Increasing the console timeout alone does not change the worker's JOB_TIMEOUT_SECONDS limit.")
     if "lora does not match" in t.lower():
         hints.append("Match the LightX2V Turbo LoRA to the task: Ref2V uses a ref2v file; FL2V and text-only use an fl2v file. Check the failed job ID: a later submission may already use the corrected file.")
     if "endpoint not found" in t.lower() or "404" in t:
@@ -4583,6 +4593,39 @@ def validate_h3_steps(value: Any) -> int:
 
 @app.post("/api/run/h3")
 async def run_h3(data: dict[str, Any]):
+    data = dict(data)
+    if data.get('source_workflow') == 'samimate':
+        data['workflow_variant'] = 'legacy'
+    try:
+        variant_options = workflow_options(data)
+        new_variant = variant_options['workflow_variant'] != 'legacy'
+        photo_paths = data.get('photo_paths', ['', '', '', ''])
+        if new_variant:
+            for field, default in variant_defaults(variant_options).items():
+                data.setdefault(field, default)
+            if not isinstance(photo_paths,list) or any(not isinstance(p,str) for p in photo_paths):
+                raise ValueError('Photo paths must be a list of strings; use empty strings for unused slots')
+            if variant_options['use_multi_image'] and (data.get('reference_video_paths') or data.get('reference_audio_paths') or data.get('audio_path')):
+                raise ValueError('Percentage keyframes cannot be combined with video/audio references; disable Use Multi IMG')
+            positions = validate_keyframes(photo_paths, data.get('keyframe_positions', []), variant_options['use_multi_image'])
+            data['task'] = 'fl2v' if variant_options['workflow_variant'].startswith('fflf') else 'r2v'
+            if data['task'] == 'fl2v':
+                if not photo_paths or (not photo_paths[0] and not (variant_options['use_multi_image'] and any(photo_paths))):
+                    raise ValueError('FFLF requires Photo 1')
+                if any(photo_paths[2:]) and not variant_options['use_multi_image']:
+                    raise ValueError('Photos 3 and 4 require Use Multi IMG')
+                data.update(first_frame_path=next(p for p in photo_paths if p), last_frame_path=photo_paths[1] if len(photo_paths)>1 else '')
+            else:
+                data['reference_paths'] = [p for p in photo_paths if p]
+            data.update(turbo_enabled=True, turbo_family='larry' if variant_options['use_larry'] else 'lightx2v')
+            if variant_options['use_larry']:
+                data['sampler'] = 'h3_turbo'
+            elif data.get('sampler') == 'h3_turbo':
+                raise ValueError('LightX2V requires a normal sampler')
+            if variant_options['latent_upscale'] and variant_options['pass1_split'] >= int(data.get('steps',6)):
+                raise ValueError('First-pass split must be below total schedule steps')
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
     if data.get("source_workflow") == "samimate":
         data = dict(data)
         try:
@@ -4733,6 +4776,9 @@ async def run_h3(data: dict[str, Any]):
     if turbo_enabled:
         payload["turbo_lora"] = turbo_lora
         payload["turbo_strength"] = turbo_strength
+    payload.update(variant_options)
+    if new_variant:
+        payload['task'] = task + '_20260920'
     effective_delivery = delivery
     estimated_inline_bytes = 0
     try:
@@ -4779,6 +4825,18 @@ async def run_h3(data: dict[str, Any]):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    if new_variant:
+        try:
+            localized = [await run_in_threadpool(h3_localize_url, str(p)) if p else '' for p in photo_paths]
+            # Reuse previously materialized inputs; only additional keyframes need uploading.
+            existing = dict(zip([p for p in localized if p], payload.get('references', []))) if task == 'r2v' else {next(p for p in localized if p): payload['first_frame']}
+            if task == 'fl2v' and len(localized)>1 and localized[1]:
+                existing[localized[1]] = payload['last_frame']
+            payload['photos'] = [existing.get(p) or h3_asset_payload(p, f'photo_{i+1}', effective_delivery, h3_s3) if p else None for i,p in enumerate(localized)]
+            payload['keyframe_positions'] = positions
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     loras = data.get("loras") or []
     if isinstance(loras, str):
         try:
@@ -4811,6 +4869,7 @@ async def run_h3(data: dict[str, Any]):
             "audio_vae", "clip_projection", "turbo_enabled", "turbo_family", "turbo_lora", "turbo_strength",
             "loras", "first_frame", "last_frame", "references", "reference_videos", "reference_video_audio", "reference_video_settings", "reference_audios", "audio",
             "use_reference_audio_as_output", "output_upload_urls", "workflow", "output_layout", "masked_edit",
+            "workflow_variant", "photos", "keyframe_positions", "use_multi_image", "latent_upscale", "rtx_upscale", "use_larry", "final_megapixels", "second_pass_sigma", "pass1_split", "latent_upscale_model",
         }
         conflicts = sorted(protected.intersection(advanced))
         if conflicts:
@@ -4825,6 +4884,13 @@ async def run_h3(data: dict[str, Any]):
     # RunPod network-volume S3 does not support presigned URLs. Have the worker
     # write the mounted volume and return its exact path for authenticated GET.
     payload["output_layout"] = "flat_outputs"
+    try:
+        payload['max_runtime_seconds'] = int(data.get('max_runtime_seconds') or (s.get('h3') or {}).get('max_runtime_seconds') or 14400)
+        payload['idle_timeout_seconds'] = int(data.get('idle_timeout_seconds') or (s.get('h3') or {}).get('idle_timeout_seconds') or 1800)
+        if not 60 <= payload['idle_timeout_seconds'] <= payload['max_runtime_seconds'] <= 86400:
+            raise ValueError('Require 60 <= inactivity <= maximum runtime <= 86400 seconds')
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, f'Invalid H3 time limits: {exc}') from exc
 
     def asset_mode(asset: Any) -> str:
         if not isinstance(asset, dict):
@@ -4875,6 +4941,205 @@ async def run_h3(data: dict[str, Any]):
     record_job_event({"target": "h3", "endpoint_id": endpoint, "job_id": job.get("id"), "status": "SUBMITTED", "payload_keys": sorted(payload.keys()), "debug": debug})
     return {"job": job, "endpoint_id": endpoint, "payload_keys": sorted(payload.keys()), "debug": debug, "payload": payload_for_inspector(payload)}
 
+DIAGNOSTIC_CACHE: dict = {}
+PROVIDER_LOG_CACHE: dict = {}
+POD_LOG_CACHE: dict = {}
+POD_LIST_CACHE: dict = {}
+ENDPOINT_WORKER_LOG_CACHE: dict = {}
+
+def monitor_settings(endpoint_id):
+    runpod_safe_id(endpoint_id)
+    s = settings()
+    allowed = {s.get(k) for k in ('h3_endpoint_id', 'wan_endpoint_id', 'infinite_endpoint_id')}
+    allowed.update(x.get('endpoint_id') for x in load_json(JOB_HISTORY_PATH, []))
+    if endpoint_id not in allowed:
+        raise HTTPException(400, 'Select a configured endpoint or a recorded job')
+    if not s.get('runpod_api_key'):
+        raise HTTPException(400, 'RunPod key missing')
+    return s
+
+
+def monitor_pod_settings(pod_id):
+    """Authorize a Pod log read against the configured H3 ComfyUI Pods."""
+    runpod_safe_id(pod_id)
+    s = settings()
+    if not s.get('runpod_api_key'):
+        raise HTTPException(400, 'RunPod key missing')
+    configured = str((s.get('h3_storage') or {}).get('comfyui_pod_id') or '').strip()
+    cache = POD_LIST_CACHE.get('h3')
+    if not cache or time.monotonic() - cache.get('checked', 0) >= 15:
+        try:
+            discovered = list_h3_comfyui_pods(s)
+        except Exception as exc:
+            raise HTTPException(400, f'Could not read RunPod Pods: {exc}') from exc
+        cache = {'checked': time.monotonic(), 'pods': discovered}
+        POD_LIST_CACHE['h3'] = cache
+    allowed = {str(item.get('id') or '') for item in cache.get('pods', [])}
+    if configured:
+        allowed.add(configured)
+    if pod_id not in allowed:
+        raise HTTPException(400, 'Select a ComfyUI Pod attached to the configured H3 volume')
+    return s
+
+
+def read_job_diagnostics(endpoint_id, job_id, s):
+    runpod_safe_id(job_id)
+    if endpoint_id != s.get('h3_endpoint_id'):
+        return {}
+    cache_key = (endpoint_id, job_id)
+    cached = DIAGNOSTIC_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < 5:
+        return cached[1]
+    result = {}
+    try:
+        helper = require_h3_s3(s)
+        response = helper.client.get_object(Bucket=helper.bucket, Key=f'diagnostics/h3/{job_id}.json')
+        with response['Body'] as body:
+            result = json.loads(body.read(512 * 1024))
+        if result.get('job_id') != job_id:
+            result = {}
+        # Logs may contain remote URLs. Never forward credentials or signed query strings.
+        secrets_to_hide = [s.get('runpod_api_key'), s.get('s3_secret_access_key'), (s.get('h3_storage') or {}).get('s3_secret_access_key')]
+        result['logs'] = [redact_log(line, secrets_to_hide) for line in result.get('logs', [])[-100:]]
+    except Exception as exc:
+        code = getattr(exc, 'response', {}).get('Error', {}).get('Code') if isinstance(getattr(exc, 'response', None), dict) else None
+        result = {'available': False, 'message': 'No durable diagnostics yet (queued job or older worker)' if code in ('NoSuchKey', '404') else 'Durable diagnostics unavailable', 'job_id': job_id}
+    if len(DIAGNOSTIC_CACHE) > 100:
+        DIAGNOSTIC_CACHE.clear()
+    DIAGNOSTIC_CACHE[cache_key] = (time.monotonic(), result)
+    return result
+
+
+@app.get('/api/h3/sampling')
+def h3_sampling_options():
+    return H3_SAMPLING
+
+
+@app.get('/api/job/{endpoint_id}/{job_id}/diagnostics')
+def job_diagnostics(endpoint_id: str, job_id: str):
+    s = monitor_settings(endpoint_id)
+    return read_job_diagnostics(endpoint_id, job_id, s)
+
+
+@app.get('/api/job/{endpoint_id}/{job_id}/logs')
+def job_worker_logs(endpoint_id: str, job_id: str):
+    s = monitor_settings(endpoint_id)
+    runpod_safe_id(job_id)
+    cache_key = (endpoint_id, job_id)
+    previous = PROVIDER_LOG_CACHE.get(cache_key, {})
+    if time.monotonic() - previous.get('checked', 0) < 10:
+        return previous
+    diagnostic = read_job_diagnostics(endpoint_id, job_id, s)
+    worker = diagnostic.get('worker_id') or job_event_for(job_id).get('worker_id')
+    if not worker:
+        worker = status(endpoint_id, s['runpod_api_key'], job_id).get('workerId')
+    if not worker:
+        return {'items': [], 'message': 'No worker assigned yet', 'diagnostics': diagnostic}
+    items = previous.get('items', [])
+    message = ''
+    try:
+        new = worker_logs(endpoint_id, worker, s['runpod_api_key'])
+        seen = {(x.get('ts'), x.get('source'), x.get('line')) for x in items}
+        items = (items + [x for x in new if (x.get('ts'), x.get('source'), x.get('line')) not in seen])[-300:]
+    except requests.RequestException:
+        message = 'RunPod log service unavailable; showing retained logs and durable job diagnostics'
+    result = {'items': items, 'worker_id': worker, 'message': message, 'diagnostics': diagnostic, 'checked': time.monotonic()}
+    if len(PROVIDER_LOG_CACHE) > 100:
+        PROVIDER_LOG_CACHE.clear()
+    PROVIDER_LOG_CACHE[cache_key] = result
+    return result
+
+
+@app.get('/api/endpoint/{endpoint_id}/workers/logs')
+def endpoint_workers_logs(endpoint_id: str, worker_id: str = '', source: str = 'both', tail: int = 200, since: str = '', max_wait_ms: int = 5000):
+    """Read the endpoint's actual serverless worker logs, tagged by worker."""
+    s = monitor_settings(endpoint_id)
+    worker_id = str(worker_id or '').strip()
+    if worker_id:
+        runpod_safe_id(worker_id)
+    source = str(source or 'both').strip().lower()
+    tail = max(1, min(5000, int(tail or 200)))
+    cache_key = (endpoint_id, worker_id, source, str(since or ''))
+    previous = ENDPOINT_WORKER_LOG_CACHE.get(cache_key, {})
+    if time.monotonic() - previous.get('checked', 0) < 3:
+        return previous
+    items = previous.get('items', [])
+    message = ''
+    listed_worker_ids = []
+    try:
+        if not worker_id:
+            listed_worker_ids = list_endpoint_workers(endpoint_id, s['runpod_api_key'])
+        fresh = endpoint_worker_logs(endpoint_id, s['runpod_api_key'], worker=worker_id, source=source, tail=tail, since=since, max_wait_ms=max_wait_ms, worker_ids=listed_worker_ids if not worker_id else None)
+        seen = {(x.get('ts'), x.get('source'), x.get('line'), x.get('worker_id')) for x in items}
+        items = (items + [x for x in fresh if (x.get('ts'), x.get('source'), x.get('line'), x.get('worker_id')) not in seen])[-tail:]
+        if not items:
+            message = 'No endpoint worker log lines returned before the read deadline'
+    except requests.RequestException:
+        message = 'RunPod endpoint worker-log service unavailable; showing retained worker logs'
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    worker_ids = sorted(set(listed_worker_ids) | {str(x.get('worker_id') or '') for x in items if x.get('worker_id')})
+    result = {
+        'endpoint_id': endpoint_id,
+        'worker_id': worker_id,
+        'worker_ids': worker_ids,
+        'source': source,
+        'items': items,
+        'message': message,
+        'checked': time.monotonic(),
+    }
+    if len(ENDPOINT_WORKER_LOG_CACHE) > 100:
+        ENDPOINT_WORKER_LOG_CACHE.clear()
+    ENDPOINT_WORKER_LOG_CACHE[cache_key] = result
+    return result
+
+
+@app.get('/api/pod/{pod_id}/logs')
+def pod_worker_logs(pod_id: str, source: str = 'both', tail: int = 200, since: str = '', max_wait_ms: int = 5000):
+    """Return actual RunPod Pod container/system logs for the H3 monitor."""
+    s = monitor_pod_settings(pod_id)
+    source = str(source or 'both').strip().lower()
+    tail = max(1, min(5000, int(tail or 200)))
+    cache_key = (pod_id, source, str(since or ''))
+    previous = POD_LOG_CACHE.get(cache_key, {})
+    # A short cache prevents two dashboard refreshes from opening duplicate
+    # streams while still keeping the console visibly live.
+    if time.monotonic() - previous.get('checked', 0) < 3:
+        return previous
+    items = previous.get('items', [])
+    message = ''
+    try:
+        fresh = pod_logs(pod_id, s['runpod_api_key'], source=source, tail=tail, since=since, max_wait_ms=max_wait_ms)
+        seen = {(x.get('ts'), x.get('source'), x.get('line')) for x in items}
+        items = (items + [x for x in fresh if (x.get('ts'), x.get('source'), x.get('line')) not in seen])[-tail:]
+        if not items:
+            message = 'No Pod log lines returned yet'
+    except requests.RequestException:
+        message = 'RunPod Pod log service unavailable; showing retained Pod logs'
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    result = {'pod_id': pod_id, 'source': source, 'items': items, 'message': message, 'checked': time.monotonic()}
+    if len(POD_LOG_CACHE) > 100:
+        POD_LOG_CACHE.clear()
+    POD_LOG_CACHE[cache_key] = result
+    return result
+
+
+@app.post('/api/job/{endpoint_id}/{job_id}/cancel')
+def cancel_job(endpoint_id: str, job_id: str):
+    s = monitor_settings(endpoint_id)
+    runpod_safe_id(job_id)
+    st = status(endpoint_id, s['runpod_api_key'], job_id)
+    if st.get('status') not in ('IN_QUEUE', 'IN_PROGRESS'):
+        return {'status': st.get('status'), 'message': 'Job is already terminal; no cancellation sent'}
+    r = requests.post(f'https://api.runpod.ai/v2/{endpoint_id}/cancel/{job_id}',
+                      headers={'Authorization': 'Bearer ' + s['runpod_api_key']}, timeout=20)
+    r.raise_for_status()
+    record_job_event({'target': 'status', 'endpoint_id': endpoint_id, 'job_id': job_id,
+                      'status': 'CANCEL_REQUESTED', 'worker_id': st.get('workerId')})
+    return r.json()
+
+
 @app.get("/api/job/{endpoint_id}/{job_id}")
 def job_status(endpoint_id: str, job_id: str):
     s=settings(); key=s.get("runpod_api_key")
@@ -4896,7 +5161,7 @@ def job_status(endpoint_id: str, job_id: str):
         except Exception:
             parsed_error = None
     if st.get("status") in {"COMPLETED", "FAILED"}:
-        record_job_event({"target": "status", "endpoint_id": endpoint_id, "job_id": job_id, "status": st.get("status"), "saved": saved, "error": st.get("error"), "parsed_error": parsed_error, "hints": explain_error_text(str(st.get("error") or parsed_error or ""))})
+        record_job_event({"target": "status", "endpoint_id": endpoint_id, "job_id": job_id, "status": st.get("status"), "worker_id": st.get('workerId'), "execution_time": st.get('executionTime'), "saved": saved, "error": st.get("error"), "parsed_error": parsed_error, "hints": explain_error_text(str(st.get("error") or parsed_error or ""))})
     return {"status":st,"saved":saved,"saved_items":saved_items,"uploaded_s3":st.get("_uploaded_s3", []),"download_errors":st.get("_download_errors", []),"parsed_error":parsed_error,"error_hints":explain_error_text(str(st.get("error") or parsed_error or "")),"output_summary":output_summary(st, s)}
 
 def composite_h3_subject(foreground: str, background: str, mask: str, run_dir: Path) -> tuple[str, str]:

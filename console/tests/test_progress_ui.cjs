@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync('static/app.js', 'utf8');
+const scope = {Date};
+vm.createContext(scope);
+vm.runInContext(source.slice(source.indexOf('function fmtDurationSec('), source.indexOf('function startProgressLogger(')), scope);
+const started = Date.now() - 3600000;
+const running = scope.progressSummary('h3', 'IN_PROGRESS', started, 2500);
+assert.match(running, /estimated 95%/);
+assert.match(running, /ETA unknown/);
+assert.doesNotMatch(running, /finishing/);
+const completed = scope.progressSummary('h3', 'COMPLETED', started, 2500);
+assert.match(completed, /^100%.*ETA done/);
+assert.doesNotMatch(completed, /estimated/);
+console.log('Elapsed-time estimates never claim the worker is finishing');

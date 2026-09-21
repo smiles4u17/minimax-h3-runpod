@@ -16,6 +16,33 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_dated_workflow_payload_and_preupload_validation(self):
+        data={"settings":{"runpod_api_key":"key","h3_endpoint_id":"test"},
+              "workflow_variant":"fflf_20260920","prompt":"A toy robot","steps":4,
+              "photo_paths":["robot.png","end.png","", ""],"keyframe_positions":["0%","100%","", ""],
+              "sampler":"euler", "use_larry":False,"pass1_split":3}
+        with (mock.patch.object(media_console,"configured_s3_helper",return_value=object()),
+              mock.patch.object(media_console,"h3_asset_payload",return_value={"data":"fixture"}) as upload,
+              mock.patch.object(media_console,"record_job_event"),
+              mock.patch.object(media_console,"submit",return_value={"id":"test"}) as submit):
+            response=self.client.post('/api/payload/preview/h3',json=data)
+            self.assertEqual(response.status_code,200,response.text)
+            payload=response.json()['payload']
+            self.assertEqual(payload['task'],'fl2v_20260920')
+            self.assertEqual(payload['photos'][:2],[payload['first_frame'],payload['last_frame']])
+            self.assertTrue(payload['latent_upscale']);self.assertTrue(payload['rtx_upscale'])
+            submit.assert_not_called()
+            upload.reset_mock()
+            bad=dict(data,keyframe_positions=['0%','100%','50%',''])
+            response=self.client.post('/api/run/h3',json=bad)
+            self.assertEqual(response.status_code,400,response.text);upload.assert_not_called();submit.assert_not_called()
+
+    def test_comfy_timeout_explains_worker_limit(self):
+        hints = media_console.explain_error_text('ComfyUI job exceeded 3600 seconds')
+        self.assertTrue(any('JOB_TIMEOUT_SECONDS' in hint for hint in hints))
+        self.assertTrue(any('not measured render progress' in hint for hint in hints))
+        self.assertFalse(any('No known pattern' in hint for hint in hints))
+
     def test_turbo_off_normalizes_stale_sampler_in_preview_and_submit(self):
         for task in ('r2v', 'fl2v'):
             data = {"settings": {"runpod_api_key": "key", "h3_endpoint_id": "test"},

@@ -539,8 +539,8 @@ function progressSummary(target,status,startedAt,estimateSec,r={}){
   let elapsed=(Date.now()-startedAt)/1000,execMs=Number(r.status?.executionTime||0),delayMs=Number(r.status?.delayTime||0),runSec=execMs?execMs/1000:Math.max(0,elapsed-(delayMs?delayMs/1000:0));
   let pct=progressPercent(status,elapsed,estimateSec,runSec),remaining=Math.max(0,estimateSec-(runSec||elapsed));
   let terminal=['COMPLETED','FAILED','CANCELLED','TIMED_OUT'].includes(String(status).toUpperCase());
-  let eta=terminal?'done':pct>=95?'finishing':`~${fmtDurationSec(remaining)}`;
-  let bits=[`${pct}%`,String(status||'working'),`elapsed ${fmtDurationSec(elapsed)}`,`ETA ${eta}`];
+  let eta=terminal?'done':pct>=95?'unknown (estimate exceeded)':`~${fmtDurationSec(remaining)}`;
+  let bits=[terminal?`${pct}%`:`estimated ${pct}%`,String(status||'working'),`elapsed ${fmtDurationSec(elapsed)}`,`ETA ${eta}`];
   if(delayMs)bits.push(`queued ${fmtDurationSec(delayMs/1000)}`);
   if(execMs)bits.push(`running ${fmtDurationSec(execMs/1000)}`);
   return bits.join(' | ');
@@ -551,9 +551,9 @@ function startProgressLogger(target,label,estimateSec,statusText){
   if(statusEl)statusEl.textContent=statusText||`${label}...`;
   log(`${label}: started | ETA ~${fmtDurationSec(estimateSec)}`);
   PROGRESS_TIMERS[key]=setInterval(()=>{
-    let elapsed=(Date.now()-startedAt)/1000,pct=progressPercent('IN_PROGRESS',elapsed,estimateSec,elapsed),eta=pct>=95?'finishing':`~${fmtDurationSec(Math.max(0,estimateSec-elapsed))}`;
-    if(statusEl)statusEl.textContent=`${label}: ${pct}% | ETA ${eta}`;
-    log(`${label}: ${pct}% | elapsed ${fmtDurationSec(elapsed)} | ETA ${eta}`);
+    let elapsed=(Date.now()-startedAt)/1000,pct=progressPercent('IN_PROGRESS',elapsed,estimateSec,elapsed),eta=pct>=95?'unknown (estimate exceeded)':`~${fmtDurationSec(Math.max(0,estimateSec-elapsed))}`;
+    if(statusEl)statusEl.textContent=`${label}: estimated ${pct}% | ETA ${eta}`;
+    log(`${label}: estimated ${pct}% | elapsed ${fmtDurationSec(elapsed)} | ETA ${eta}`);
   },30000);
   return function stopProgressLogger(finalMsg='complete'){
     clearInterval(PROGRESS_TIMERS[key]);delete PROGRESS_TIMERS[key];
@@ -708,9 +708,13 @@ async function submitRun(url,p,target='inf'){
 }
 async function finishSamimate(items){try{let edited=(items||[]).find(x=>x.kind==='video'&&x.path),backendLabel=SAMIMATE_STATE?.backend==='h3'?'MiniMax H3':'WanAnimate';if(!edited)throw new Error(`${backendLabel} completed but no local video output was saved.`);samimateSetStatus(`Step 4/4: Compositing original background over ${backendLabel} result`, samimateTrimSummary());let stopComposite=startProgressLogger('samimate','SAMimate step 4/4 composite',Math.max(45,estimateSecFor('sam',{video_frame_cap:samimateWanFrameCap(),fps:+val('samimate_fps')||16})/3),'Compositing final video...');let r;try{r=await api('/api/samimate/composite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({foreground_path:edited.path,background_path:SAMIMATE_STATE.sourceVideo,mask_video_path:SAMIMATE_STATE.subjectMask,inverted_mask_video_path:SAMIMATE_STATE.invertedMask,run_dir:SAMIMATE_STATE.runDir,video_start:val('samimate_video_start'),video_end:val('samimate_video_end'),video_frame_cap:String(samimateWanFrameCap()),video_crop:parseCrop('samimate'),width:intFieldOrDefault('samimate_width',0),height:intFieldOrDefault('samimate_height',0),fps:+val('samimate_fps')||0,...(SAMIMATE_STATE.prepared?{generation_backend:'h3',background_path:SAMIMATE_STATE.prepared.composite_source_path||SAMIMATE_STATE.prepared.source_path,video_start:0,video_end:'',video_crop:null,video_frame_cap:String(SAMIMATE_STATE.prepared.frame_count),fps:24}: {})})});stopComposite('composite complete')}catch(e){stopComposite('composite failed');throw e}let out=r.items?.length?r.items:[r];showOutputPreview('samimate',out,true,{job:SAMIMATE_STATE.job,title:'SAMimate Run',note:`Saved ${out.length} outputs in ${r.run_dir||SAMIMATE_STATE.runDir}`});SAMIMATE_STATE.active=false;samimateSetStatus('Complete',`saved ${out.length} outputs in ${r.run_dir||SAMIMATE_STATE.runDir}`);if(r.debug)log('SAMimate composite debug: '+JSON.stringify(r.debug));log('SAMimate outputs saved: '+(r.run_dir||SAMIMATE_STATE.runDir))}catch(e){if(SAMIMATE_STATE)SAMIMATE_STATE.active=false;samimateSetStatus('Composite error');log('SAMimate composite error: '+e.message);alert('SAMimate composite error: '+e.message)}}
 function watch(endpoint,job,target='inf',meta={}){
+  if(window.attachJobMonitor)window.attachJobMonitor(endpoint,job,target);
   let timerKey=`${endpoint}:${job}`;
   let pollStart=meta.startedAt||Date.now(),lastStatus='',lastProgressLog=0,estimate=meta.estimateSec||estimateSecFor(target,meta.payload||{}),statusEl=targetStatusEl(target);
+  let polling=false;
   async function poll(){
+    if(polling)return;
+    polling=true;
     try{
       let r=await api(`/api/job/${endpoint}/${job}`),s=r.status.status,summary=progressSummary(target,s,pollStart,estimate,r),now=Date.now();
       if(statusEl)statusEl.textContent=summary;
@@ -719,11 +723,11 @@ function watch(endpoint,job,target='inf',meta={}){
         lastStatus=s;lastProgressLog=now;
       }
       if(target==='samimate'&&s!=='COMPLETED'&&s!=='FAILED')samimateSetStatus(`Step 3/4: ${SAMIMATE_STATE?.backend==='h3'?'MiniMax H3':'WanAnimate'} ${s}`, summary);
-      if(s==='COMPLETED'||s==='FAILED'||(target==='samimate'&&['CANCELLED','TIMED_OUT'].includes(s))){
+      if(['COMPLETED','FAILED','CANCELLED','TIMED_OUT'].includes(s)){
         clearInterval(JOB_TIMERS[timerKey]);delete JOB_TIMERS[timerKey];
         let totalSec=(Date.now()-pollStart)/1000;
         if(s==='COMPLETED')rememberProgressDuration(target,totalSec);
-        if(statusEl)statusEl.textContent=s==='COMPLETED'?`Complete | elapsed ${fmtDurationSec(totalSec)}`:`Failed | elapsed ${fmtDurationSec(totalSec)}`;
+        if(statusEl)statusEl.textContent=`${s} | elapsed ${fmtDurationSec(totalSec)}`;
         let items=r.saved_items||[];
         if(r.saved?.length)log('Saved: '+r.saved.join(', '));
         if(r.uploaded_s3?.length)log('Uploaded to S3: '+r.uploaded_s3.join(', '));
@@ -739,7 +743,7 @@ function watch(endpoint,job,target='inf',meta={}){
           showOutputPreview(target,[],true,{job,note:summary});
           await refreshRecentOutputs(false);
         }
-        if(s==='FAILED'||(target==='samimate'&&['CANCELLED','TIMED_OUT'].includes(s))){
+        if(['FAILED','CANCELLED','TIMED_OUT'].includes(s)){
           setOutputIdle(target);
           if(target==='samimate'){if(SAMIMATE_STATE)SAMIMATE_STATE.active=false;}if(target==='samimate')samimateSetStatus(`${SAMIMATE_STATE?.backend==='h3'?'MiniMax H3':'WanAnimate'} failed`, summary);
           log(JSON.stringify(r.status,null,2));
@@ -751,7 +755,7 @@ function watch(endpoint,job,target='inf',meta={}){
         }
         await loadJobHistory();
       }
-    }catch(e){log('watch error: '+e.message)}
+    }catch(e){log('watch error: '+e.message)}finally{polling=false}
   }
   JOB_TIMERS[timerKey]=setInterval(poll,4000);
   poll();
@@ -1050,7 +1054,7 @@ async function samSendMaskedVideoToInf(){let p=SAM.result?.masked_video_path||va
 async function samSendMaskedVideoToWanMask(){let p=SAM.result?.masked_video_path||val('sam_masked_video_path');if(!p)return alert('Enable Make masked video and run SAM first.');set('wan_masked_video_path',p);previewForInput('wan_masked_video_path',await previewUrlForPath(p));await persistSettingsQuietly();log('SAM masked video sent to Wan masked-video field')}
 async function samSendMaskedVideoToWan(){let p=SAM.result?.masked_video_path||val('sam_masked_video_path');if(!p)return alert('Enable Make masked video and run SAM first.');set('wan_video_path',p);previewForInput('wan_video_path',await previewUrlForPath(p));await persistSettingsQuietly();log('SAM masked video sent to Wan reference video field')}
 
-init().catch(e=>log('init error: '+e.message));
+init().then(()=>window.dispatchEvent(new Event('console-ready'))).catch(e=>log('init error: '+e.message));
 
 
 
