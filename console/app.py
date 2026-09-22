@@ -4869,7 +4869,7 @@ async def run_h3(data: dict[str, Any]):
             "audio_vae", "clip_projection", "turbo_enabled", "turbo_family", "turbo_lora", "turbo_strength",
             "loras", "first_frame", "last_frame", "references", "reference_videos", "reference_video_audio", "reference_video_settings", "reference_audios", "audio",
             "use_reference_audio_as_output", "output_upload_urls", "workflow", "output_layout", "masked_edit",
-            "workflow_variant", "photos", "keyframe_positions", "use_multi_image", "latent_upscale", "rtx_upscale", "use_larry", "final_megapixels", "second_pass_sigma", "pass1_split", "latent_upscale_model",
+            "workflow_variant", "output_mode", "photos", "keyframe_positions", "use_multi_image", "latent_upscale", "rtx_upscale", "use_larry", "final_megapixels", "second_pass_sigma", "pass1_split", "latent_upscale_model",
         }
         conflicts = sorted(protected.intersection(advanced))
         if conflicts:

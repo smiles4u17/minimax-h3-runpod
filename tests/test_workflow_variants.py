@@ -73,6 +73,15 @@ class VariantTests(unittest.TestCase):
         self.assertIn('image_1',graph['182']['inputs'])
         self.assertNotIn('image_2',graph['182']['inputs'])
 
+    def test_three_output_modes(self):
+        for mode, latent, rtx in [('none',False,False),('latent',True,False),('rtx',False,True)]:
+            graph,meta=self.build(output_mode=mode)
+            self.assertEqual('9303' in graph,latent)
+            self.assertEqual('9310' in graph,rtx)
+            self.assertEqual(meta['final_megapixels'],1.0)
+            self.assertEqual(graph['130']['inputs']['images'],['9310',0] if rtx else ['122',0])
+        with self.assertRaises(handler.InputError):self.build(output_mode='invalid')
+
     def test_percent_boundaries(self):
         for value in ('0%','10%','15%','100%','99.5%'):validate_keyframes(['image'],[value],True)
         for value in ('-1%','101%','0.5','NaN%',''):

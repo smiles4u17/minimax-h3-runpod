@@ -27,11 +27,18 @@ def workflow_options(data):
     split = number("pass1_split", 3 if variant.startswith("fflf") else 6, 1, 1000)
     if not mode.is_integer() or not split.is_integer():
         raise ValueError("Sigma choice and split must be whole numbers")
-    return {"workflow_variant": variant, "use_multi_image": flag("use_multi_image", False),
+    result = {"workflow_variant": variant, "use_multi_image": flag("use_multi_image", False),
             "latent_upscale": flag("latent_upscale", True), "rtx_upscale": flag("rtx_upscale", True),
-            "use_larry": flag("use_larry", False), "final_megapixels": number("final_megapixels", .9, .2, 2),
+            "use_larry": flag("use_larry", False), "final_megapixels": number("final_megapixels", 1.0, .2, 2),
             "second_pass_sigma": int(mode), "pass1_split": int(split),
             "latent_upscale_model": str(data.get("latent_upscale_model") or "minimax_h3_latent_upscaler_3d_bf16.safetensors")}
+    mode = data.get('output_mode')
+    if mode is not None:
+        if mode not in ('none', 'latent', 'rtx'):
+            raise ValueError('Output mode must be none, latent or rtx')
+        result.update(output_mode=mode, latent_upscale=mode == 'latent', rtx_upscale=mode == 'rtx')
+    return result
+
 
 def validate_keyframes(images, positions, enabled):
     if not isinstance(images, list) or len(images) > 4:
