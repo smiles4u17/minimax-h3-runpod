@@ -12,21 +12,22 @@
   const selector=document.createElement('label');
   selector.innerHTML='Workflow<select id="h3_workflow_variant"><option value="legacy">Legacy (original workflow)</option><option value="fflf_20260920">FFLF · September 20 · two pass</option><option value="ref2v_20260920">Ref2V · September 20 · two pass</option></select>';
   document.getElementById('h3_task').closest('.cardTitleRow').prepend(selector);
-  const panel=document.createElement('div');panel.id='h3_variant_controls';panel.className='hidden';
-  panel.innerHTML=`<h3>Two-pass workflow</h3><div class="fields">
+  const panel=document.createElement('div');panel.id='h3_variant_controls';panel.className='';
+  panel.innerHTML=`<h3>Latent upscale & final output</h3><p id="h3_variant_notice" class="hint"></p><fieldset class="fields" style="border:0;padding:0;margin:0;min-width:0">
     <label><input type="checkbox" id="h3_use_multi_image"> Use Multi IMG (percentage keyframes)</label>
     <label><input type="checkbox" id="h3_use_larry"> Use Larry Turbo (off = LightX2V)</label>
     <label><input type="checkbox" id="h3_latent_upscale" checked> Latent upscale and second pass</label>
-    <label>Final latent resolution (MP)<input id="h3_final_megapixels" type="number" min="0.2" max="2" step="0.1" value="0.9"></label>
+    <label>Latent upscale target (MP)<input id="h3_final_megapixels" type="number" min="0.2" max="2" step="0.1" value="0.9"></label>
     <label>First-pass sigma split<input id="h3_pass1_split" type="number" min="1" value="3"></label>
     <label>Second-pass sigmas<select id="h3_second_pass_sigma"><option value="1">1 — 3 steps</option><option value="2" selected>2 — 4 steps</option><option value="3">3 — 5 steps</option><option value="4">4 — remaining first-pass sigmas</option></select></label>
     <label>Latent upscale model<input id="h3_latent_upscale_model" value="minimax_h3_latent_upscaler_3d_bf16.safetensors"></label>
     <label><input type="checkbox" id="h3_rtx_upscale" checked> RTX final upscale (1920 × 1080 at 16:9)</label>
-    </div><p class="hint">Main aspect ratio controls both passes and RTX output. Megapixels below is the first-pass resolution (usually 0.2 MP). Additional LoRAs use the existing LoRA section. The final frame is saved alongside the video.</p>`;
+    </fieldset><p class="hint">Main aspect ratio controls both passes and RTX output. Megapixels below is the first-pass resolution (usually 0.2 MP). Additional LoRAs use the existing LoRA section. The final frame is saved alongside the video.</p>`;
   models.querySelector('.h3SectionBody').prepend(panel);
   const photos=document.createElement('div');photos.id='h3_variant_photos';photos.className='hidden';
   photos.innerHTML='<h3>Workflow photos</h3><p class="hint">Leave unused photo slots and their percentages empty. Photos 3 and 4 in FFLF require Use Multi IMG. Ref2V keeps the video/audio references below.</p><div class="fields">'+Array.from({length:4},(_,i)=>`<div class="variantPhoto"><label>Photo ${i+1}<input id="h3_photo${i+1}" placeholder="Local image path"></label><button type="button" data-photo="${i+1}">Choose image</button><input type="file" id="h3_photo_file${i+1}" accept="image/*" hidden><label>Keyframe percentage<input id="h3_keyframe${i+1}" placeholder="${i===0?'0%':i===1?'100%':'Leave empty if unused'}"></label></div>`).join('')+'</div>';
   selector.closest('.cardTitleRow').after(photos);
+  generationBody.prepend(selector);
   photos.querySelectorAll('[data-photo]').forEach(button=>button.onclick=()=>document.getElementById('h3_photo_file'+button.dataset.photo).click());
   for(let i=1;i<=4;i++)document.getElementById('h3_photo_file'+i).onchange=async e=>{
     const file=e.target.files[0];if(!file)return;
@@ -35,7 +36,10 @@
   function isNew(){return val('h3_workflow_variant')!=='legacy'}
   function sync(change=false){
     const active=isNew(),fflf=val('h3_workflow_variant')==='fflf_20260920';
-    panel.classList.toggle('hidden',!active);photos.classList.toggle('hidden',!active);
+    panel.querySelector('fieldset').disabled=!active;photos.classList.toggle('hidden',!active);
+    $('h3_variant_notice').textContent=active?'Pass 1 is the original generation size. The latent upscale target sets the second-pass size; RTX is a separate final upscale.':'Legacy uses a single generation pass. Choose FFLF or Ref2V September 20 above to enable latent upscaling.';
+    const resolutionLabel=$('h3_megapixels').closest('label');
+    for(const node of resolutionLabel.childNodes)if(node.nodeType===3&&node.textContent.trim()){node.textContent=active?'Pass 1 resolution (MP)':'Generation resolution (MP)';break}
     $('h3_task').disabled=active;
     if(active){set('h3_task',fflf?'fl2v':'r2v')}
     updateH3TaskUI();
