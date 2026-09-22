@@ -321,7 +321,7 @@
     <div class="h3SectionBody"><div class="fields">
     <label title="Auto budgets all references together: small requests use Base64, while larger requests use mounted H3 network-volume paths to stay below RunPod's 10 MiB limit.">Input Delivery<select id="h3_delivery"><option value="auto">Auto (size-safe)</option><option value="base64">Base64 / direct</option><option value="volume_path">H3 Network Volume</option></select></label>
     <label title="Video duration from 1 to 15 seconds.">Duration Seconds<input id="h3_duration" type="number" min="1" max="15" step="0.5" value="2"></label>
-    <label title="Target frame area in megapixels, from 0.2 to 2.0.">Megapixels<input id="h3_megapixels" type="number" min="0.2" max="2" step="0.1" value="0.2"></label>
+    <label title="Original generation area before upscaling. 0.20 MP = 200,000 pixels, not 0.02 MP. Supported range: 0.20 to 2.00 MP.">Megapixels<input id="h3_megapixels" type="number" min="0.2" max="2" step="0.1" value="0.2"></label>
     <label title="Any positive whole number. Training step counts are recommendations, not limits.">Steps<input id="h3_steps" type="number" min="1" step="1" value="6"></label>
     <label title="Used when Random Seed is off. Entering a negative value is also treated as random for compatibility.">Seed<input id="h3_seed" type="number" min="0" max="9007199254740991" value="123456789"></label>
     <label title="Generate a fresh valid seed for every submission. The actual seed is recorded in the job metadata for reproducibility."><input id="h3_seed_random" type="checkbox"> Random Seed each run</label>
@@ -570,7 +570,7 @@
 </section>
 <script src="/static/app.js?v=15.77"></script>
 <script src="/static/dashboard.js?v=15.83"></script>
-<script src="/static/h3_variants.js?v=15.84"></script>
+<script src="/static/h3_variants.js?v=15.85"></script>
 <script src="/static/workspace.js?v=15.82"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
 </body>

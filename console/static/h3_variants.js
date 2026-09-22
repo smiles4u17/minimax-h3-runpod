@@ -17,7 +17,7 @@
     <label><input type="checkbox" id="h3_use_multi_image"> Use Multi IMG (percentage keyframes)</label>
     <label><input type="checkbox" id="h3_use_larry"> Use Larry Turbo (off = LightX2V)</label>
     <label><input type="checkbox" id="h3_latent_upscale" checked> Latent upscale and second pass</label>
-    <label>Latent upscale target (MP)<input id="h3_final_megapixels" type="number" min="0.2" max="2" step="0.1" value="0.9"></label>
+    <label>Pass 2 — latent upscale target (MP)<input id="h3_final_megapixels" type="number" min="0.2" max="2" step="0.1" value="0.9"></label>
     <label>First-pass sigma split<input id="h3_pass1_split" type="number" min="1" value="3"></label>
     <label>Second-pass sigmas<select id="h3_second_pass_sigma"><option value="1">1 — 3 steps</option><option value="2" selected>2 — 4 steps</option><option value="3">3 — 5 steps</option><option value="4">4 — remaining first-pass sigmas</option></select></label>
     <label>Latent upscale model<input id="h3_latent_upscale_model" value="minimax_h3_latent_upscaler_3d_bf16.safetensors"></label>
@@ -28,6 +28,17 @@
   photos.innerHTML='<h3>Workflow photos</h3><p class="hint">Leave unused photo slots and their percentages empty. Photos 3 and 4 in FFLF require Use Multi IMG. Ref2V keeps the video/audio references below.</p><div class="fields">'+Array.from({length:4},(_,i)=>`<div class="variantPhoto"><label>Photo ${i+1}<input id="h3_photo${i+1}" placeholder="Local image path"></label><button type="button" data-photo="${i+1}">Choose image</button><input type="file" id="h3_photo_file${i+1}" accept="image/*" hidden><label>Keyframe percentage<input id="h3_keyframe${i+1}" placeholder="${i===0?'0%':i===1?'100%':'Leave empty if unused'}"></label></div>`).join('')+'</div>';
   selector.closest('.cardTitleRow').after(photos);
   generationBody.prepend(selector);
+  const resolutionSummary=document.createElement('p');resolutionSummary.id='h3_resolution_summary';resolutionSummary.className='hint';resolutionSummary.setAttribute('aria-live','polite');
+  selector.after(resolutionSummary);
+  function updateResolutionSummary(){
+    const mp=value=>{const n=Number(value);return Number.isFinite(n)&&value!==''?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4})+' MP ('+Math.round(n*1000000).toLocaleString('en-US')+' target pixels)':'not set'};
+    const active=isNew();
+    const stages=['Original generation: '+mp(val('h3_megapixels'))];
+    if(active)stages.push(chk('h3_latent_upscale')?'Latent upscale target: '+mp(val('h3_final_megapixels')):'Latent upscale: OFF');
+    stages.push(active&&chk('h3_rtx_upscale')?'Final RTX upscale: 1920-pixel long edge (1920 × 1080 at 16:9)':'Final output: '+(active&&chk('h3_latent_upscale')?'latent upscale size':'original generation size'));
+    resolutionSummary.textContent='Requested sizes — '+stages.join(' → ')+'. Typical first pass: 0.20 MP = 200,000 pixels; 0.02 MP = 20,000 pixels and is below the supported minimum. These are requested targets, not measured dimensions of previous exports.';
+  }
+  for(const event of ['input','change','click'])generationBody.addEventListener(event,()=>requestAnimationFrame(updateResolutionSummary));
   photos.querySelectorAll('[data-photo]').forEach(button=>button.onclick=()=>document.getElementById('h3_photo_file'+button.dataset.photo).click());
   for(let i=1;i<=4;i++)document.getElementById('h3_photo_file'+i).onchange=async e=>{
     const file=e.target.files[0];if(!file)return;
@@ -39,8 +50,9 @@
     panel.querySelector('fieldset').disabled=!active;photos.classList.toggle('hidden',!active);
     $('h3_variant_notice').textContent=active?'Pass 1 is the original generation size. The latent upscale target sets the second-pass size; RTX is a separate final upscale.':'Legacy uses a single generation pass. Choose FFLF or Ref2V September 20 above to enable latent upscaling.';
     const resolutionLabel=$('h3_megapixels').closest('label');
-    for(const node of resolutionLabel.childNodes)if(node.nodeType===3&&node.textContent.trim()){node.textContent=active?'Pass 1 resolution (MP)':'Generation resolution (MP)';break}
+    for(const node of resolutionLabel.childNodes)if(node.nodeType===3&&node.textContent.trim()){node.textContent=active?'Pass 1 — original generation size (MP)':'Original generation size (MP)';break}
     $('h3_task').disabled=active;
+    updateResolutionSummary();
     if(active){set('h3_task',fflf?'fl2v':'r2v')}
     updateH3TaskUI();
     if(active)$('h3_fl2v_inputs').classList.add('hidden');
@@ -52,6 +64,7 @@
     document.querySelector('[onclick="applyH3CleanBaseline()"]')?.classList.toggle('hidden',active);
     $('h3_sampler').disabled=active&&chk('h3_use_larry');
     for(const id of ['h3_final_megapixels','h3_pass1_split','h3_second_pass_sigma','h3_latent_upscale_model'])$(id).disabled=!chk('h3_latent_upscale');
+    updateResolutionSummary();
   }
   $('h3_workflow_variant').onchange=()=>{sync(true);persistSettingsSoon()};
   $('h3_use_larry').onchange=()=>{setChk('h3_turbo_enabled',true);selectH3TurboFamily(chk('h3_use_larry')?'larry':'lightx2v');sync();persistSettingsSoon()};
