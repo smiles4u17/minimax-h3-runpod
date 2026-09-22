@@ -4617,8 +4617,8 @@ async def run_h3(data: dict[str, Any]):
                 data.update(first_frame_path=next(p for p in photo_paths if p), last_frame_path=photo_paths[1] if len(photo_paths)>1 else '')
             else:
                 data['reference_paths'] = [p for p in photo_paths if p]
-            data.update(turbo_enabled=True, turbo_family='larry' if variant_options['use_larry'] else 'lightx2v')
-            if variant_options['use_larry']:
+            data.update(turbo_enabled=variant_options['turbo_enabled'], turbo_family='larry' if variant_options['use_larry'] else 'lightx2v')
+            if variant_options['use_larry'] and variant_options['turbo_enabled']:
                 data['sampler'] = 'h3_turbo'
             elif data.get('sampler') == 'h3_turbo':
                 raise ValueError('LightX2V requires a normal sampler')

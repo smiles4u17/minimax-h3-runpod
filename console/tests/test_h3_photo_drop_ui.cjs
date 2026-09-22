@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync('static/h3_variants.js','utf8').split('(() =>')[0];
+const ctx={};vm.createContext(ctx);vm.runInContext(source,ctx);
+(async()=>{const styles=new Set(),card={classList:{add:x=>styles.add(x),remove:x=>styles.delete(x)}};
+const file={name:'reference.png',type:'image/png'},received=[];let prevented=0,stopped=0;
+ctx.bindH3PhotoDrop(card,async f=>{received.push(f)});
+const event={preventDefault:()=>prevented++,stopPropagation:()=>stopped++,dataTransfer:{files:[file]}};
+card.ondragover(event);assert(styles.has('drag'));assert.equal(event.dataTransfer.dropEffect,'copy');
+await card.ondrop(event);assert.deepEqual(received,[file]);assert(!styles.has('drag'));assert.equal(prevented,2);assert.equal(stopped,2);
+console.log('Photo drop upload and browser-navigation suppression passed');})();

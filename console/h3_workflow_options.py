@@ -29,7 +29,7 @@ def workflow_options(data):
         raise ValueError("Sigma choice and split must be whole numbers")
     result = {"workflow_variant": variant, "use_multi_image": flag("use_multi_image", False),
             "latent_upscale": flag("latent_upscale", True), "rtx_upscale": flag("rtx_upscale", True),
-            "use_larry": flag("use_larry", False), "final_megapixels": number("final_megapixels", 1.0, .2, 2),
+            "turbo_enabled": flag("turbo_enabled", True), "use_larry": flag("use_larry", False), "final_megapixels": number("final_megapixels", 1.0, .2, 2),
             "second_pass_sigma": int(mode), "pass1_split": int(split),
             "latent_upscale_model": str(data.get("latent_upscale_model") or "minimax_h3_latent_upscaler_3d_bf16.safetensors")}
     mode = data.get('output_mode')
@@ -66,4 +66,4 @@ def variant_defaults(options):
             'minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors' if fflf else
             'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors')
     return {'steps': 4 if fflf else 8, 'megapixels': .2,
-            'sampler': 'h3_turbo' if options['use_larry'] else 'euler', 'turbo_lora': 'H3/' + lora}
+            'sampler': 'h3_turbo' if options['use_larry'] and options.get('turbo_enabled', True) else 'euler', 'turbo_lora': 'H3/' + lora}

@@ -698,8 +698,8 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
                 payload['last_frame'] = photos[1] if len(photos) > 1 else None
             else:
                 payload['references'] = [p for p in photos if p]
-        payload.update(turbo_enabled=True, turbo_family='larry' if options['use_larry'] else 'lightx2v')
-        if options['use_larry']:
+        payload.update(turbo_enabled=options['turbo_enabled'], turbo_family='larry' if options['use_larry'] else 'lightx2v')
+        if options['use_larry'] and options['turbo_enabled']:
             payload['sampler'] = 'h3_turbo'
         elif payload.get('sampler') == 'h3_turbo':
             raise InputError('LightX2V requires a normal sampler')

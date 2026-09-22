@@ -1070,7 +1070,7 @@ function setupSamimateH3Controls(){
   const host=$('samimate_h3_controls');if(!host||host.children.length)return;
   for(const key of SAMIMATE_H3_FIELDS){
     const source=$('h3_'+key),label=source?.closest('label');if(!label)continue;
-    const copy=label.cloneNode(true);for(const el of [copy,...copy.querySelectorAll('*')]){for(const a of [...el.attributes])if(a.name.startsWith('on'))el.removeAttribute(a.name);if(el.id)el.id='samimate_'+el.id;el.disabled=false}
+    const copy=label.cloneNode(true);copy.classList.remove('hidden');for(const el of [copy,...copy.querySelectorAll('*')]){for(const a of [...el.attributes])if(a.name.startsWith('on'))el.removeAttribute(a.name);if(el.id)el.id='samimate_'+el.id;el.disabled=false}
     host.appendChild(copy);
   }
   const saved=SETTINGS.samimate||{};

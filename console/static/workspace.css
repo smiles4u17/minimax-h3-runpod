@@ -18,3 +18,5 @@
 /* Height-aware dense packing fills gaps between unequal-height tiles. */
 .dashboardGrid{grid-auto-flow:row dense;grid-auto-rows:4px;row-gap:0;column-gap:16px}
 @media(max-width:850px){.dashboardGrid{grid-auto-rows:auto;row-gap:16px}.dashboardGrid>*{grid-row-end:auto!important}}
+
+.h3PairedFields{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px}.h3ControlGroup{border-bottom:1px solid #29425c;padding-bottom:14px;margin-bottom:14px}.h3PairedFields label{min-width:0}.variantPhoto.drag{outline:2px solid #60a5fa;background:#17314c}.variantPhotoPreview{width:100%;max-height:220px;object-fit:contain;margin-top:8px}.h3ControlGroup input[role="switch"]{accent-color:#60a5fa}

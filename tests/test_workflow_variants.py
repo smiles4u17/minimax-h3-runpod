@@ -87,6 +87,17 @@ class VariantTests(unittest.TestCase):
             self.assertEqual(graph['130']['inputs']['images'],['9310',0] if rtx else ['122',0])
         with self.assertRaises(handler.InputError):self.build(output_mode='invalid')
 
+    def test_no_turbo_and_independent_rtx(self):
+        for variant in ('fflf_20260920','ref2v_20260920'):
+            for larry in (False,True):
+                graph,meta=self.build(variant,turbo_enabled=False,use_larry=larry,latent_upscale=False,rtx_upscale=True)
+                self.assertNotIn('152',graph)
+                self.assertNotIn('9303',graph)
+                sampler=graph['125']['inputs']['sampler'][0]
+                self.assertNotIn('Turbo',graph[sampler]['class_type'])
+                self.assertFalse(meta['turbo_enabled'])
+                self.assertEqual(graph['9310']['inputs']['images'],['122',0])
+
     def test_percent_boundaries(self):
         for value in ('0%','10%','15%','100%','99.5%'):validate_keyframes(['image'],[value],True)
         for value in ('-1%','101%','0.5','NaN%',''):
