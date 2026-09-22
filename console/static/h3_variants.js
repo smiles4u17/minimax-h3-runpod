@@ -37,7 +37,7 @@
     const active=isNew(),fflf=val('h3_workflow_variant')==='fflf_20260920';
     panel.querySelector('fieldset').disabled=!active;photos.classList.toggle('hidden',!active);
     $('h3_variant_notice').textContent=active?'':'Select a September 20 workflow to enable upscaling.';
-    setChk('h3_latent_upscale',val('h3_output_mode')==='latent');
+    setChk('h3_latent_upscale',['latent','rtx'].includes(val('h3_output_mode')));
     setChk('h3_rtx_upscale',val('h3_output_mode')==='rtx');
     const resolutionLabel=$('h3_megapixels').closest('label');
     for(const node of resolutionLabel.childNodes)if(node.nodeType===3&&node.textContent.trim()){node.textContent='MP';break}

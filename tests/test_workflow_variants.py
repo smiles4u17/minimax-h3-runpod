@@ -74,10 +74,15 @@ class VariantTests(unittest.TestCase):
         self.assertNotIn('image_2',graph['182']['inputs'])
 
     def test_three_output_modes(self):
-        for mode, latent, rtx in [('none',False,False),('latent',True,False),('rtx',False,True)]:
+        for mode, latent, rtx in [('none',False,False),('latent',True,False),('rtx',True,True)]:
             graph,meta=self.build(output_mode=mode)
             self.assertEqual('9303' in graph,latent)
             self.assertEqual('9310' in graph,rtx)
+            if rtx:
+                self.assertEqual(graph['122']['inputs']['samples'],['9308',0])
+                self.assertEqual(graph['9310']['inputs']['images'],['122',0])
+                self.assertEqual(graph['9310']['inputs']['resize_type.width'],1920)
+                self.assertEqual(graph['9310']['inputs']['resize_type.height'],1080)
             self.assertEqual(meta['final_megapixels'],1.0)
             self.assertEqual(graph['130']['inputs']['images'],['9310',0] if rtx else ['122',0])
         with self.assertRaises(handler.InputError):self.build(output_mode='invalid')

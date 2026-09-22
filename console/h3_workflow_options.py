@@ -36,7 +36,7 @@ def workflow_options(data):
     if mode is not None:
         if mode not in ('none', 'latent', 'rtx'):
             raise ValueError('Output mode must be none, latent or rtx')
-        result.update(output_mode=mode, latent_upscale=mode == 'latent', rtx_upscale=mode == 'rtx')
+        result.update(output_mode=mode, latent_upscale=mode in ('latent', 'rtx'), rtx_upscale=mode == 'rtx')
     return result
 
 
