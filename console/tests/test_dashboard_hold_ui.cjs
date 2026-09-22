@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync('static/dashboard.js','utf8'),handlers={},classes=new Set();let timer,delay,cleared=false;
+const el={tagName:'DETAILS',open:true,dataset:{span:'1'},getBoundingClientRect:()=>({left:0,top:0,width:200,height:100}),classList:{add:x=>classes.add(x)},style:{}},grid={insertBefore(){}},bar={addEventListener:(n,f)=>handlers[n]=f,setPointerCapture(){}},scope={el,grid,bar,grip:{},document:{createElement:()=>({style:{},dataset:{}})},setTimeout:(f,ms)=>{timer=f;delay=ms;return 1},clearTimeout:()=>{cleared=true},update(){},save(){}};
+vm.createContext(scope);vm.runInContext('let pendingDrag=null,activePointerDrag=null,suppressClick=false;function clearPending(){if(pendingDrag){clearTimeout(pendingDrag.timer);pendingDrag=null}}',scope);
+const start=source.indexOf("      bar.addEventListener('click',e=>{");const end=source.indexOf("      bar.addEventListener('pointerup',finishPointerDrag)",start);
+vm.runInContext(source.slice(start,end),scope);
+const event={target:{closest:()=>null},button:0,pointerId:1,clientX:20,clientY:10,preventDefault(){},stopPropagation(){}};
+handlers.pointerdown(event);assert.equal(delay,300);assert(!classes.has('cardDragging'));
+vm.runInContext('clearPending()',scope);assert(cleared);handlers.click(event);assert.equal(el.open,false);
+handlers.pointerdown(event);timer();assert(classes.has('cardDragging'));handlers.click(event);assert.equal(el.open,false);
+console.log('Title click toggles; hold delays drag; post-hold click does not toggle');

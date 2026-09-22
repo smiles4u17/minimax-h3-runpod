@@ -230,7 +230,7 @@
           <button type="button" class="secondaryButton" onclick="deletePrompt('h3')">Delete</button>
         </div>
       </div>
-      <div class="h3PromptComposer"><textarea id="h3_prompt" rows="12" title="Full MiniMax H3 prompt. Enabled subject definitions are inserted at the top automatically.">A cinematic shot with natural, stable motion.</textarea><div class="h3RunTop"><button id="h3_run_button" class="run h3PrimaryRun" onclick="runH3()">Run MiniMax H3</button><span id="h3_status" class="trimMeta"></span></div></div>
+      <div class="h3PromptComposer"><textarea id="h3_prompt" rows="12" title="Full MiniMax H3 prompt. Enabled subject definitions are inserted at the top automatically.">A cinematic shot with natural, stable motion.</textarea><div class="h3RunTop"><button id="h3_run_button" class="run h3PrimaryRun" onclick="runH3()">Run MiniMax H3</button><button id="h3_cancel_button" type="button" onclick="cancelCurrentH3Job()" disabled>Cancel current job</button><span id="h3_status" class="trimMeta"></span></div></div>
       <div id="h3_subject_prompt_status" class="h3SubjectPromptStatus">No Subject Book definitions enabled.</div>
       <details class="h3InlineDetails"><summary>Advanced prompt overrides</summary><label title="Advanced object merged into the H3 request after the visible controls.">Advanced JSON<textarea id="h3_advanced" rows="4">{}</textarea></label></details>
     </div>
@@ -568,8 +568,9 @@
   </div>
   <pre id="log"></pre>
 </section>
-<script src="/static/app.js?v=15.88"></script>
-<script src="/static/dashboard.js?v=15.83"></script>
+<script src="/static/app.js?v=15.89"></script>
+<script src="/static/dashboard.js?v=15.89"></script>
+<script src="/static/h3_job.js?v=15.89"></script>
 <script src="/static/h3_variants.js?v=15.88"></script>
 <script src="/static/workspace.js?v=15.82"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
