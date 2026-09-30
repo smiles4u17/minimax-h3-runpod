@@ -7,7 +7,8 @@ from h3_workflow_options import workflow_options, validate_keyframes
 
 SIGMAS = {1: "0.9035, 0.6316, 0.3158, 0.0000",
           2: "0.9035, 0.8000, 0.6316, 0.3158, 0.0000",
-          3: "0.9231, 0.8780, 0.8000, 0.6316, 0.3158, 0.0000"}
+          3: "0.9231, 0.8780, 0.8000, 0.6316, 0.3158, 0.0000",
+          5: "0.9035, 0.8500, 0.8000, 0.7200, 0.6316, 0.5000, 0.3158, 0.1500, 0.0000"}
 
 def apply_variant(graph, payload, materialize, model_name):
     options = workflow_options(payload)
@@ -36,11 +37,15 @@ def apply_variant(graph, payload, materialize, model_name):
     final_latent = ['125', 0]
     if options['latent_upscale']:
         split = options['pass1_split']
-        if split >= int(payload.get('steps', 6)):
-            raise ValueError('First-pass split must be less than total schedule steps')
-        sigmas = copy.deepcopy(graph['125']['inputs']['sigmas'])
-        add('9300', 'SplitSigmas', sigmas=sigmas, step=split)
-        graph['125']['inputs']['sigmas'] = ['9300', 0]
+        steps = int(payload.get('steps', 6))
+        if split > steps:
+            raise ValueError('First-pass split cannot exceed total schedule steps')
+        if split == steps and options['second_pass_sigma'] == 4:
+            raise ValueError('Remaining sigmas require a first-pass split below total steps')
+        if split < steps:
+            sigmas = copy.deepcopy(graph['125']['inputs']['sigmas'])
+            add('9300', 'SplitSigmas', sigmas=sigmas, step=split)
+            graph['125']['inputs']['sigmas'] = ['9300', 0]
         add('9301', 'LTXVSeparateAVLatent', av_latent=['125', 1])
         add('9302', 'ResolutionSelector', aspect_ratio=payload.get('aspect_ratio','16:9 (Widescreen)'), megapixels=options['final_megapixels'], multiple=32)
         name = model_name({'upscaler':options['latent_upscale_model']}, 'upscaler', 'latent_upscale_models', options['latent_upscale_model'])
@@ -75,4 +80,11 @@ def apply_variant(graph, payload, materialize, model_name):
     graph['130']['inputs']['images'] = images
     last = add('9311','ImageFromBatch',image=images,batch_index=-1,length=1)
     add('9312','SaveImage',images=last,filename_prefix='Last_Frame/H3')
+    if payload.get('diagnostic_frames') is True:
+        if options['latent_upscale']:
+            first_images = add('9320','VAEDecode',samples=['125',1],vae=graph['122']['inputs']['vae'])
+            first_last = add('9321','ImageFromBatch',image=first_images,batch_index=-1,length=1)
+            add('9322','SaveImage',images=first_last,filename_prefix='Diagnostic/H3_First_Pass')
+        pre_rtx_last = add('9323','ImageFromBatch',image=['122',0],batch_index=-1,length=1)
+        add('9324','SaveImage',images=pre_rtx_last,filename_prefix='Diagnostic/H3_Pre_RTX')
     return options

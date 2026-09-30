@@ -54,8 +54,27 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(graph['9305']['inputs']['width'],['9302',0])
 
     def test_reject_invalid_slots_and_incompatible_references(self):
-        for changes in (dict(keyframe_positions=['0%','100%','20%','']),dict(use_multi_image=True,keyframe_positions=['0','100%']),dict(photos=[asset('1'),None,asset('3')]),dict(pass1_split=8),dict(use_multi_image=True,reference_videos=[asset('video')])):
+        for changes in (dict(keyframe_positions=['0%','100%','20%','']),dict(use_multi_image=True,keyframe_positions=['0','100%']),dict(photos=[asset('1'),None,asset('3')]),dict(pass1_split=9),dict(pass1_split=8,second_pass_sigma=4),dict(use_multi_image=True,reference_videos=[asset('video')])):
             with self.assertRaises((handler.InputError,ValueError)):self.build(**changes)
+
+    def test_full_first_pass_uses_original_schedule_before_refine(self):
+        graph, _ = self.build('ref2v_20260920', pass1_split=8, second_pass_sigma=5)
+        self.assertNotIn('9300', graph)
+        self.assertEqual(graph['125']['inputs']['sigmas'], ['124', 0])
+        self.assertEqual(graph['9301']['inputs']['av_latent'], ['125', 1])
+        self.assertEqual(graph['9308']['inputs']['sigmas'], ['9307', 0])
+        self.assertEqual(len(graph['9307']['inputs']['sigmas'].split(',')), 9)
+
+    def test_diagnostic_frames_capture_both_refine_boundaries(self):
+        graph, _ = self.build('ref2v_20260920', diagnostic_frames=True)
+        self.assertEqual(graph['9320']['inputs']['samples'], ['125', 1])
+        self.assertEqual(graph['9320']['inputs']['vae'], graph['122']['inputs']['vae'])
+        self.assertEqual(graph['9322']['inputs']['images'], ['9321', 0])
+        self.assertEqual(graph['9323']['inputs']['image'], ['122', 0])
+        self.assertEqual(graph['9324']['inputs']['images'], ['9323', 0])
+        normal, _ = self.build('ref2v_20260920')
+        self.assertNotIn('9320', normal)
+        self.assertNotIn('9324', normal)
 
     def test_larry_uses_dedicated_sampler_both_passes(self):
         graph,_=self.build(use_larry=True,turbo_lora='H3/minimax_h3_turbo_v4_step600_ema.safetensors')
