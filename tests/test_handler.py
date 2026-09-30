@@ -31,6 +31,31 @@ def asset(name: str) -> dict[str, str]:
     return {"name": name, "data": base64.b64encode(b"test-asset").decode("ascii")}
 
 
+class HistoryPollTests(unittest.TestCase):
+    def test_history_poll_retries_when_comfy_read_times_out(self):
+        class ReadTimeout(Exception):
+            pass
+
+        calls = {"n": 0}
+
+        def get(url, timeout=0):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ReadTimeout("Read timed out. (read timeout=30)")
+            response = mock.Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = {"pid": {"status": {"status_str": "success"}, "outputs": {}}}
+            return response
+
+        with mock.patch.object(handler, "requests") as req, mock.patch.object(handler.time, "sleep"):
+            req.get = get
+            req.RequestException = ReadTimeout
+            req.Timeout = ReadTimeout
+            history = handler._wait_for_history("pid", telemetry=None)
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(history["status"]["status_str"], "success")
+
+
 class WorkflowTests(unittest.TestCase):
     def test_text_only_does_not_materialize_stale_frames(self):
         with mock.patch.object(handler, "_materialize_asset", side_effect=AssertionError("stale media")):

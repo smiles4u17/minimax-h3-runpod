@@ -444,8 +444,11 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     workflow["124"]["inputs"]["model"] = model
     workflow["126"]["inputs"]["model"] = model
 
-    prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(payload.get("filename_prefix", "MiniMax_H3"))).strip("._")
-    workflow[spec["save"]]["inputs"]["filename_prefix"] = f"video/{prefix or 'MiniMax_H3'}"
+    prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(payload.get("filename_prefix", "H3"))).strip("._")
+    legacy = "RunPod_Media_Console_H3"
+    if prefix.startswith(legacy):
+        prefix = "H3" + prefix[len(legacy):]
+    workflow[spec["save"]]["inputs"]["filename_prefix"] = f"video/{prefix or 'H3'}"
     return {
         "gpu": gpu_name,
         "gpu_vram_gb": round(total_vram_gb, 2) if total_vram_gb is not None else None,
@@ -748,12 +751,27 @@ def _submit(workflow: dict[str, Any], client_id: str | None = None) -> str:
     return str(body["prompt_id"])
 
 
+def _comfy_http_stall(exc: BaseException) -> bool:
+    """A connected ComfyUI that does not answer is busy, not dead."""
+    timeout_type = getattr(requests, "Timeout", None)
+    if timeout_type is not None and isinstance(exc, timeout_type):
+        return True
+    return type(exc).__name__ in {"Timeout", "ReadTimeout", "ConnectTimeout"}
+
+
 def _wait_for_history(prompt_id: str, telemetry=None) -> dict[str, Any]:
     deadline = time.monotonic() + JOB_TIMEOUT
     while telemetry is not None or time.monotonic() < deadline:
         if telemetry is not None:
             telemetry.check()
-        response = requests.get(f"{COMFY_URL}/history/{prompt_id}", timeout=30)
+        try:
+            response = requests.get(f"{COMFY_URL}/history/{prompt_id}", timeout=30)
+        except requests.RequestException as exc:
+            if not _comfy_http_stall(exc):
+                raise
+            print(f"ComfyUI history poll did not answer; sampling may still be running: {type(exc).__name__}", flush=True)
+            time.sleep(2)
+            continue
         response.raise_for_status()
         body = response.json()
         if prompt_id in body:
@@ -948,12 +966,15 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         return {"error": str(exc), "error_type": "invalid_input"}
     except Exception as exc:
         oom = is_oom(exc) or bool(monitor and monitor.state.get('oom'))
-        try:
-            requests.post(COMFY_URL + '/interrupt', timeout=5)
-        except Exception:
-            pass
+        stalled = _comfy_http_stall(exc)
+        if not stalled:
+            try:
+                requests.post(COMFY_URL + '/interrupt', timeout=5)
+            except Exception:
+                pass
         # A failed CUDA/Comfy process must not poison the next queued request.
-        refresh = oom or isinstance(exc, TimeoutError) or not _comfy_ready()
+        # A read timeout means Comfy accepted the connection and is busy sampling.
+        refresh = oom or isinstance(exc, TimeoutError) or (not stalled and not _comfy_ready())
         if monitor:
             monitor.stage('failed', error=str(exc)[:2000], oom=oom, refresh_worker=refresh)
         return {"error": str(exc), "error_type": 'out_of_memory' if oom else type(exc).__name__,
