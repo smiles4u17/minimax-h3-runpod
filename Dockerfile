@@ -48,6 +48,7 @@ RUN set -eux; \
       https://github.com/Apache0ne/ComfyUI-fasterminimax.git "$FBCACHE_REF"; \
     install_node /comfyui/custom_nodes/ComfyUI-VideoHelperSuite \
       https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git "$VHS_REF"; \
+    python3.12 -c "from pathlib import Path; p=Path('/comfyui/custom_nodes/ComfyUI-VideoHelperSuite/videohelpersuite/utils.py'); t=p.read_text(); old='[\"-f\", \"f32le\", \"-\"]'; new='[\"-f\", \"f32le\", \"pipe:1\"]'; assert old in t, 'VHS audio extract command changed'; p.write_text(t.replace(old, new, 1))"; \
     install_node /comfyui/custom_nodes/ComfyUI-MiniMaxH3-LowVRAM \
       https://github.com/lericogit/ComfyUI-MiniMaxH3-LowVRAM.git "$H3_LOWVRAM_REF"; \
     install_node /comfyui/custom_nodes/ComfyUI-H3-Multishot \
