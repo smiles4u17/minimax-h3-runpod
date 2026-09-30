@@ -23,7 +23,7 @@ def workflow_options(data):
         if not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f"{name} must be between {low} and {high}")
         return value
-    mode = number("second_pass_sigma", 2, 1, 4)
+    mode = number("second_pass_sigma", 2, 1, 5)
     split = number("pass1_split", 3 if variant.startswith("fflf") else 6, 1, 1000)
     if not mode.is_integer() or not split.is_integer():
         raise ValueError("Sigma choice and split must be whole numbers")

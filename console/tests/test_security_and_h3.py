@@ -37,6 +37,13 @@ class SecurityAndH3Tests(unittest.TestCase):
             response=self.client.post('/api/run/h3',json=bad)
             self.assertEqual(response.status_code,400,response.text);upload.assert_not_called();submit.assert_not_called()
 
+    def test_comfy_read_timeout_is_a_busy_worker_not_a_rejected_prompt(self):
+        hints = media_console.explain_error_text(
+            "HTTPConnectionPool(host='127.0.0.1', port=8188): Read timed out. (read timeout=30)"
+        )
+        self.assertTrue(any("sampling" in hint for hint in hints))
+        self.assertFalse(any("No known pattern" in hint for hint in hints))
+
     def test_comfy_timeout_explains_worker_limit(self):
         hints = media_console.explain_error_text('ComfyUI job exceeded 3600 seconds')
         self.assertTrue(any('JOB_TIMEOUT_SECONDS' in hint for hint in hints))
@@ -310,6 +317,16 @@ class SecurityAndH3Tests(unittest.TestCase):
         self.assertNotIn("wan22_endpoint_id", profiles["old"])
         self.assertNotIn("s3_access_key_id", profiles["old"]["h3_storage"])
         self.assertNotIn("s3_secret_access_key", profiles["old"]["h3_storage"])
+
+    def test_h3_output_names_use_short_prefix(self):
+        self.assertEqual(media_console.h3_output_prefix("RunPod_Media_Console_H3"), "H3")
+        self.assertEqual(media_console.h3_output_prefix("RunPod_Media_Console_H3_SAMimate"), "H3_SAMimate")
+        self.assertEqual(media_console.h3_output_prefix("Custom_Take"), "Custom_Take")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "h3_0002.mp4").write_bytes(b"x")
+            path = media_console.next_output_path(root, "H3", ".mp4")
+            self.assertEqual(path.name, "H3_0003.mp4")
 
     def test_h3_validation_uses_h3_endpoint_and_requires_first_frame_once(self):
         payload = {

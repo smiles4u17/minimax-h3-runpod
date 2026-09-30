@@ -1,0 +1,286 @@
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+os.environ.setdefault("RUNPOD_MEDIA_CONSOLE_TOKEN", "test-console-token")
+
+from fastapi.testclient import TestClient
+
+import app as media_console
+import prompt_book_h3
+
+
+class PromptBookH3Tests(unittest.TestCase):
+    def setUp(self):
+        startup = mock.patch.object(media_console.OUTPUT_SYNC, "start")
+        startup.start()
+        self.addCleanup(startup.stop)
+        temp_parent = media_console.APP_DIR / "cache" / "temp"
+        temp_parent.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = tempfile.TemporaryDirectory(dir=temp_parent)
+        root = Path(self.temp_dir.name)
+        self.original_paths = (
+            media_console.SETTINGS_PATH,
+            media_console.PRESETS_PATH,
+            media_console.ENDPOINT_PROFILES_PATH,
+            media_console.PROMPTS_PATH,
+            media_console.H3_SUBJECTS_PATH,
+            prompt_book_h3.WORKFLOW_ROOT,
+        )
+        media_console.SETTINGS_PATH = root / "settings.json"
+        media_console.PRESETS_PATH = root / "presets.json"
+        media_console.ENDPOINT_PROFILES_PATH = root / "endpoint_profiles.json"
+        media_console.PROMPTS_PATH = root / "prompts.json"
+        media_console.H3_SUBJECTS_PATH = root / "h3_subjects.json"
+        self.workflow_root = root / "workflows"
+        self.workflow_root.mkdir()
+        prompt_book_h3.WORKFLOW_ROOT = self.workflow_root
+        self.client = TestClient(media_console.app, headers={"Authorization": "Bearer test-console-token"})
+
+    def tearDown(self):
+        self.client.close()
+        (
+            media_console.SETTINGS_PATH,
+            media_console.PRESETS_PATH,
+            media_console.ENDPOINT_PROFILES_PATH,
+            media_console.PROMPTS_PATH,
+            media_console.H3_SUBJECTS_PATH,
+            prompt_book_h3.WORKFLOW_ROOT,
+        ) = self.original_paths
+        self.temp_dir.cleanup()
+
+    def catalog(self):
+        return {
+            "subjects": [
+                {"id": "ada", "label": "Ada", "path": r"C:\stills\ada.jpg", "images": [
+                    {"path": r"C:\stills\ada.jpg", "primary": True},
+                    {"path": r"C:\stills\ada-2.jpg", "primary": False},
+                ]},
+                {"id": "bea", "label": "Bea", "path": r"C:\stills\bea.jpg", "images": []},
+            ],
+            "videos": [
+                {"id": "clip", "label": "Clip", "file": r"C:\clips\clip.mp4", "duration_sec": 42, "width": 720, "height": 1280},
+            ],
+        }
+
+    def test_request_uses_four_step_ref2v_and_clamps_duration(self):
+        request, meta = prompt_book_h3.build_prompt_book_h3_request(
+            {"workflow_id": "ours", "steps": 4, "sampler": "res_multistep", "scheduler": "beta", "subject_id": "ada", "video_id": "clip", "threesome": True, "subject_b": "bea", "loras": [{"name": "creative.safetensors", "strength": 0.75}]},
+            catalog=self.catalog(),
+            baked={"prompt": "Completely replace <Subject 3> with <Subject 1>."},
+        )
+        self.assertEqual(request["task"], "r2v")
+        self.assertEqual(request["workflow_variant"], "ref2v_20260920")
+        self.assertEqual(request["steps"], 4)
+        self.assertEqual(request["pass1_split"], 3)
+        self.assertEqual(request["second_pass_sigma"], 2)
+        self.assertFalse(request["use_larry"])
+        self.assertFalse(request["turbo_enabled"])
+        self.assertEqual(request["sampler"], "res_multistep")
+        self.assertEqual(request["scheduler"], "beta")
+        self.assertEqual(request["ref2va_model"], prompt_book_h3.BETA5_MODEL)
+        self.assertFalse(request["rtx_upscale"])
+        self.assertTrue(request["latent_upscale"])
+        self.assertEqual(request["attention"], "sage")
+        self.assertEqual(request["megapixels"], 0.2)
+        self.assertEqual(request["final_megapixels"], 1.0)
+        self.assertEqual(request["duration"], 15.0)
+        self.assertTrue(meta["duration_clamped"])
+        self.assertEqual(request["aspect_ratio"], "9:16 (Portrait Widescreen)")
+        self.assertEqual(request["photo_paths"][:3], [r"C:\stills\ada.jpg", r"C:\stills\bea.jpg", r"C:\stills\ada-2.jpg"])
+        self.assertEqual(request["reference_video_paths"], [r"C:\clips\clip.mp4"])
+        self.assertFalse(request["use_multi_image"])
+        self.assertEqual(request["loras"], [{"name": "creative.safetensors", "strength": 0.75}])
+        self.assertEqual(request["advanced_json"], "{}")
+        tuned, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {"workflow_id": "ours", "steps": 6, "subject_id": "ada", "video_id": "clip",
+             "megapixels": 0.3, "final_megapixels": 1.2, "latent_upscale": True, "rtx_upscale": True,
+             "pass1_split": 3, "second_pass_sigma": 3, "cache_enabled": False, "attention": "native",
+             "aspect_ratio": "16:9 (Widescreen)"},
+            catalog=self.catalog(),
+            baked={"prompt": "Completely replace <Subject 3> with <Subject 1>."},
+        )
+        self.assertEqual(tuned["megapixels"], 0.3)
+        self.assertEqual(tuned["final_megapixels"], 1.2)
+        self.assertTrue(tuned["rtx_upscale"])
+        self.assertEqual(tuned["pass1_split"], 3)
+        self.assertEqual(tuned["second_pass_sigma"], 3)
+        self.assertFalse(tuned["cache_enabled"])
+        self.assertEqual(tuned["attention"], "native")
+        self.assertEqual(tuned["aspect_ratio"], "16:9 (Widescreen)")
+        trimmed, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {"workflow_id": "ours", "subject_id": "ada", "video_id": "clip", "trim_start": 2, "trim_end": 10},
+            catalog=self.catalog(),
+            baked={"prompt": "Completely replace <Subject 3> with <Subject 1>."},
+        )
+        self.assertEqual(trimmed["duration"], 8)
+        self.assertEqual(trimmed["reference_video_settings"][0]["start_frame"], 48)
+        self.assertEqual(trimmed["reference_video_settings"][0]["force_rate"], 24)
+        explicit, explicit_meta = prompt_book_h3.build_prompt_book_h3_request(
+            {"workflow_id": "ours", "subject_id": "ada", "video_id": "clip", "duration": 5, "trim_start": 2},
+            catalog=self.catalog(),
+            baked={"prompt": "Completely replace <Subject 3> with <Subject 1>."},
+        )
+        self.assertEqual(explicit["duration"], 5)
+        self.assertFalse(explicit_meta["duration_clamped"])
+        self.assertEqual(explicit["reference_video_settings"][0]["start_frame"], 48)
+        too_long, too_long_meta = prompt_book_h3.build_prompt_book_h3_request(
+            {"workflow_id": "ours", "subject_id": "ada", "video_id": "clip", "duration": 20},
+            catalog=self.catalog(),
+            baked={"prompt": "Completely replace <Subject 3> with <Subject 1>."},
+        )
+        self.assertEqual(too_long["duration"], 15.0)
+        self.assertTrue(too_long_meta["duration_clamped"])
+
+    def test_eight_step_and_prompt_override(self):
+        request, meta = prompt_book_h3.build_prompt_book_h3_request(
+            {
+                "workflow_id": "quality5090",
+                "subject_id": "ada",
+                "video_id": "clip",
+                "use_prompt_override": True,
+                "prompt": "Edited prompt",
+            },
+            catalog={
+                "subjects": self.catalog()["subjects"][:1],
+                "videos": [{**self.catalog()["videos"][0], "duration_sec": 6.2, "width": 1920, "height": 1080}],
+            },
+            baked={"prompt": "Baked"},
+        )
+        self.assertEqual(request["prompt"], "Edited prompt")
+        self.assertEqual(request["steps"], 8)
+        self.assertEqual(request["pass1_split"], 7)
+        self.assertEqual(request["second_pass_sigma"], 2)
+        self.assertFalse(request["turbo_enabled"])
+        self.assertEqual(request["duration"], 6.2)
+        self.assertFalse(meta["duration_clamped"])
+        capped, capped_meta = prompt_book_h3.build_prompt_book_h3_request(
+            {"workflow_id": "quality5090", "subject_id": "ada", "video_id": "clip", "duration": 12},
+            catalog={
+                "subjects": self.catalog()["subjects"][:1],
+                "videos": [{**self.catalog()["videos"][0], "duration_sec": 6.2, "width": 1920, "height": 1080}],
+            },
+            baked={"prompt": "Baked"},
+        )
+        self.assertEqual(capped["duration"], 6.2)
+        self.assertTrue(capped_meta["duration_clamped"])
+        self.assertEqual(request["aspect_ratio"], "16:9 (Widescreen)")
+        self.assertEqual(request["photo_paths"][0], r"C:\stills\ada.jpg")
+        self.assertEqual(request["photo_paths"][1], r"C:\stills\ada-2.jpg")
+
+    def test_full_first_pass_and_diagnostic_capture_are_explicit(self):
+        base = {"workflow_id": "ours", "subject_id": "ada", "video_id": "clip",
+                "pass1_split": 8, "second_pass_sigma": 5, "diagnostic_frames": True}
+        request, _ = prompt_book_h3.build_prompt_book_h3_request(
+            base, catalog=self.catalog(), baked={"prompt": "Test prompt"})
+        self.assertEqual(request["pass1_split"], 8)
+        self.assertEqual(request["second_pass_sigma"], 5)
+        self.assertTrue(request["diagnostic_frames"])
+        for changes in ({"pass1_split": 9}, {"second_pass_sigma": 4}):
+            with self.assertRaises(ValueError):
+                prompt_book_h3.build_prompt_book_h3_request(
+                    {**base, **changes}, catalog=self.catalog(), baked={"prompt": "Test prompt"})
+
+    def test_silent_scene_does_not_request_missing_vhs_audio(self):
+        scene = Path(self.temp_dir.name) / "silent.mp4"
+        scene.write_bytes(b"fixture")
+        catalog = self.catalog()
+        catalog["videos"][0]["file"] = str(scene)
+        probe = mock.Mock(stdout="", stderr="Input #0, mov, from 'silent.mp4':\n  Stream #0:0: Video: h264")
+        with mock.patch.object(prompt_book_h3.subprocess, "run", return_value=probe):
+            request, _ = prompt_book_h3.build_prompt_book_h3_request(
+                {"subject_id": "ada", "video_id": "clip"}, catalog=catalog, baked={"prompt": "Test prompt"})
+        self.assertEqual(request["reference_video_audio"], [False])
+
+    def test_upload_skips_matching_volume_object_and_verifies_size(self):
+        for spec in prompt_book_h3.PROMPT_BOOK_WORKFLOWS.values():
+            (self.workflow_root / spec["filename"]).write_text('{"nodes":[]}', encoding="utf-8")
+        stored = {}
+
+        class Helper:
+            bucket = "vgc3ky6r6y"
+
+            def call(self, name, **kwargs):
+                if name == "head_object":
+                    size = stored.get(kwargs["Key"])
+                    if size is None:
+                        raise RuntimeError("missing")
+                    return {"ContentLength": size}
+                raise AssertionError(name)
+
+            def upload_to_key(self, path, key):
+                stored[key] = Path(path).stat().st_size
+                return {"key": key}
+
+        first = prompt_book_h3.upload_prompt_book_workflows(Helper())
+        self.assertEqual(len(stored), 2)
+        self.assertTrue(all(item["uploaded"] and item["on_volume"] for item in first))
+        second = prompt_book_h3.upload_prompt_book_workflows(Helper())
+        self.assertTrue(all(not item["uploaded"] and item["on_volume"] for item in second))
+
+    def test_run_route_submits_ref2v_without_calling_the_network(self):
+        captured = {}
+
+        def fake_submit(endpoint, key, payload, settings):
+            captured.update(payload)
+            return {"id": "prompt-book-job"}
+
+        def fake_book(path, timeout=60):
+            if path.startswith("/api/catalog"):
+                return self.catalog()
+            if path.startswith("/api/prompt"):
+                return {"prompt": "Baked from the book."}
+            raise AssertionError(path)
+
+        settings = {
+            "runpod_api_key": "key",
+            "h3_endpoint_id": "h3-endpoint",
+            "s3_endpoint_url": "https://s3.example",
+            "s3_access_key_id": "access",
+            "s3_secret_access_key": "secret",
+            "h3_storage": {"s3_bucket": "h3-bucket", "s3_region": "test-1"},
+            "h3": {
+                "fl2va_model": "fl.safetensors",
+                "ref2va_model": "ref.safetensors",
+                "text_encoder": "clip.safetensors",
+                "video_vae": "video.safetensors",
+                "audio_vae": "audio.safetensors",
+                "turbo_lora": "minimax_h3_turbo_v4_step600_ema.safetensors",
+            },
+        }
+        with (
+            mock.patch.object(prompt_book_h3, "book_json", side_effect=fake_book),
+            mock.patch.object(prompt_book_h3, "upload_prompt_book_workflows") as upload,
+            mock.patch.object(media_console, "submit", side_effect=fake_submit),
+            mock.patch.object(media_console, "h3_asset_payload", return_value={"volume_path": "/runpod-volume/input/mock"}),
+            mock.patch.object(media_console, "record_job_event"),
+        ):
+            response = self.client.post("/api/run/prompt-book", json={
+                "settings": settings,
+                "workflow_id": "fast5090",
+                "steps": 4,
+                "subject_id": "ada",
+                "video_id": "clip",
+                "loras": [{"name": "creative.safetensors", "strength": 0.75}],
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(captured["task"], "r2v_20260920")
+        self.assertEqual(captured["steps"], 4)
+        self.assertEqual(captured["model"], prompt_book_h3.BETA5_MODEL)
+        self.assertFalse(captured["turbo_enabled"])
+        self.assertEqual(captured["sampler"], "euler")
+        self.assertFalse(captured["latent_upscale"])
+        self.assertEqual(len(captured["references"]), 2)
+        self.assertEqual(len(captured["reference_videos"]), 1)
+        self.assertEqual(captured["loras"], [{"name": "H3/creative.safetensors", "strength": 0.75}])
+        self.assertFalse(captured["rtx_upscale"])
+        self.assertNotIn("volume_path", response.json()["prompt_book"])
+        self.assertNotIn("secret", json.dumps(response.json()["prompt_book"]))
+        upload.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

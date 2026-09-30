@@ -8,14 +8,15 @@ from typing import Any, Optional
 import boto3, imageio_ffmpeg, requests
 from botocore.client import Config
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from output_sync import OutputSync
 from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults
+import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v15.82-workflow-variants"
+APP_VERSION = "web-v15.93-prompt-book"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -78,7 +79,7 @@ def defaults() -> dict[str, Any]:
         "tts":{"engine":"windows_sapi","voice":"","rate":0,"volume":100,"piper_exe":"","piper_model":"","piper_config":"","output_path":"","inf_output_path":""},
         "infinitetalk":{"input_type":"image","person_count":"single","image_path":"","video_path":"","audio_path":"","audio2_path":"","width":512,"height":512,"max_frame":"","force_offload":True,"network_volume":True,"prompt":"A person talking naturally","advanced_json":"{}","video_start":"","video_end":"","video_frame_cap":"","video_crop":"","audio_start":"","audio_end":"","audio2_start":"","audio2_end":""},
         "wananimate":{"mode":"replace","image_path":"","video_path":"","mask_path":"","masked_video_path":"","mask_pretrimmed":False,"width":0,"height":0,"seed":12345,"fps":16,"cfg":1.0,"steps":6,"pose_estimation":True,"face_detection":True,"mask_editing":False,"network_volume":True,"prompt":"","negative_prompt":"blurry, low quality, distorted","control_points_enabled":False,"advanced_json":"{}","video_start":"","video_end":"","video_frame_cap":"","video_crop":"","delivery_override":"auto"},
-        "h3":{"task":"fl2v","first_frame_path":"","last_frame_path":"","reference_paths":[],"reference_video_paths":[],"reference_video_audio":[],"reference_video_settings":[],"reference_audio_paths":[],"reference_subjects":[],"subject_generated_prefix":"","audio_path":"","use_reference_audio_as_output":False,"prompt":"A cinematic shot with natural, stable motion.","duration":2.0,"megapixels":0.2,"steps":6,"seed":123456789,"seed_random":False,"sampling_preset":"stock_turbo","sampler":"h3_turbo","scheduler":"simple","cache_enabled":False,"cache_threshold":0.18,"attention":"auto","aspect_ratio":"16:9 (Widescreen)","filename_prefix":"RunPod_Media_Console_H3","delivery":"auto","fl2va_model":"minimax_h3_fl2va_pruned_int8_convrot.safetensors","ref2va_model":"minimax_h3_ref2va_pruned_int8_convrot.safetensors","text_encoder":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","video_vae":"minimax_h3_video_vae_fp16.safetensors","audio_vae":"minimax_h3_audio_vae_fp32.safetensors","clip_projection":"","turbo_enabled":True,"turbo_lora":"minimax_h3_turbo_v4_step600_ema.safetensors","turbo_strength":1.0,"loras":[],"advanced_json":"{}"},
+        "h3":{"task":"fl2v","first_frame_path":"","last_frame_path":"","reference_paths":[],"reference_video_paths":[],"reference_video_audio":[],"reference_video_settings":[],"reference_audio_paths":[],"reference_subjects":[],"subject_generated_prefix":"","audio_path":"","use_reference_audio_as_output":False,"prompt":"A cinematic shot with natural, stable motion.","duration":2.0,"megapixels":0.2,"steps":6,"seed":123456789,"seed_random":False,"sampling_preset":"stock_turbo","sampler":"h3_turbo","scheduler":"simple","cache_enabled":False,"cache_threshold":0.18,"attention":"auto","aspect_ratio":"16:9 (Widescreen)","filename_prefix":"H3","delivery":"auto","fl2va_model":"minimax_h3_fl2va_pruned_int8_convrot.safetensors","ref2va_model":"minimax_h3_ref2va_pruned_int8_convrot.safetensors","text_encoder":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","video_vae":"minimax_h3_video_vae_fp16.safetensors","audio_vae":"minimax_h3_audio_vae_fp32.safetensors","clip_projection":"","turbo_enabled":True,"turbo_lora":"minimax_h3_turbo_v4_step600_ema.safetensors","turbo_strength":1.0,"loras":[],"advanced_json":"{}"},
         "h3_storage":{"network_volume_id":"vgc3ky6r6y","s3_endpoint_url":"","s3_access_key_id":"","s3_secret_access_key":"","s3_bucket":"vgc3ky6r6y","s3_region":"eu-ro-1","s3_prefix":"minimax-h3","runpod_volume_root":"/runpod-volume","comfyui_pod_id":""},
         "model_download":{"hf_token":"","civitai_token":""},
         "samimate":{"video_path":"","image_path":"","subject_prompt":"person","prompt":"","negative_prompt":"blurry, low quality, distorted","advanced_json":"{}","generation_backend":"wan","mask_frame_cap":0,"mode":"replace","delivery_override":"auto","width":832,"height":480,"seed":12345,"fps":16,"cfg":1.0,"steps":6,"pose_estimation":True,"face_detection":True,"mask_editing":True,"network_volume":True,"video_start":"","video_end":"","video_frame_cap":"","video_crop":"","use_wan_points":False},
@@ -176,10 +177,24 @@ def public_settings(data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     return out
 
 
+def h3_output_prefix(value: Any) -> str:
+    """Keep generated media on the short H3_ base. Older builds used a long console name."""
+    text = str(value or "").strip()
+    legacy = "RunPod_Media_Console_H3"
+    if not text or text in {legacy, "MiniMax_H3"}:
+        return "H3"
+    if text.startswith(legacy):
+        return "H3" + text[len(legacy):]
+    return text
+
+
 def settings() -> dict[str, Any]:
     out = merge(defaults(), load_json(SETTINGS_PATH, {}))
     out.pop("wan22_endpoint_id", None)
     out.pop("wan22", None)
+    h3 = out.get("h3")
+    if isinstance(h3, dict):
+        h3["filename_prefix"] = h3_output_prefix(h3.get("filename_prefix"))
     return out
 def save_settings(data: dict[str, Any]) -> dict[str, Any]:
     current = settings()
@@ -1839,17 +1854,19 @@ def output_folder_for_endpoint(endpoint_id: str, s: dict[str, Any]) -> tuple[Pat
     if endpoint_id == s.get("wan_endpoint_id"):
         return base / "animate", "animate"
     if endpoint_id == s.get("h3_endpoint_id"):
-        return base / "h3", "h3"
+        return base / "h3", "H3"
     return base / "runs", "run"
 
 def next_output_path(out_dir: Path, prefix: str, ext: str) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     ext = ext if ext.startswith(".") else f".{ext}"
     nums = []
-    for p in out_dir.glob(f"{prefix}_*{ext}"):
-        m = re.match(rf"{re.escape(prefix)}_(\d+){re.escape(ext)}$", p.name)
-        if m:
-            nums.append(int(m.group(1)))
+    pattern = re.compile(rf"{re.escape(prefix)}_(\d+){re.escape(ext)}$", re.IGNORECASE)
+    for p in out_dir.iterdir() if out_dir.exists() else []:
+        if p.is_file():
+            match = pattern.match(p.name)
+            if match:
+                nums.append(int(match.group(1)))
     return out_dir / f"{prefix}_{(max(nums) + 1 if nums else 1):04d}{ext}"
 
 def next_numbered_dir(root: Path, prefix: str) -> Path:
@@ -2247,6 +2264,10 @@ def redact_for_ui(data: Any) -> Any:
 def explain_error_text(text: str) -> list[str]:
     t = text or ""
     hints: list[str] = []
+    if "read timed out" in t.lower() and "8188" in t:
+        hints.append("ComfyUI on the worker was sampling and did not answer one status check within 30 seconds. The prompt was already accepted. Image 4f1bcca retries that check. An older worker stops the sample instead.")
+    if "vhs failed to extract audio" in t.lower() or "error opening output file -" in t.lower():
+        hints.append("The reference clip reached the worker, then Video Helper Suite failed while reading its audio. The worker ffmpeg rejects raw audio written to '-'. The next image writes that audio to pipe:1. This is not a rejected prompt.")
     if "comfyui job exceeded" in t.lower():
         hints.append("The worker reached its ComfyUI render time limit and interrupted generation. The displayed percentage is a time estimate, not measured render progress. For H3, check whether Turbo was disabled; select a task-matched LightX2V sampling preset, or reduce duration/resolution. Inspect worker logs before retrying. Increasing the console timeout alone does not change the worker's JOB_TIMEOUT_SECONDS limit.")
     if "lora does not match" in t.lower():
@@ -4591,6 +4612,155 @@ def validate_h3_steps(value: Any) -> int:
     except (TypeError, ValueError, OverflowError) as e:
         raise ValueError("H3 steps must be a positive whole number") from e
 
+@app.get("/api/prompt-book/status")
+def prompt_book_status():
+    try:
+        raw = prompt_book_h3.book_json("/api/catalog", timeout=20)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "url": prompt_book_h3.PROMPT_BOOK_BASE}
+    catalog = prompt_book_h3.slim_catalog(raw)
+    return {
+        "ok": True,
+        "url": prompt_book_h3.PROMPT_BOOK_BASE,
+        "subjects": len(catalog["subjects"]),
+        "videos": len(catalog["videos"]),
+    }
+
+
+@app.get("/api/prompt-book/catalog")
+def prompt_book_catalog():
+    try:
+        return prompt_book_h3.slim_catalog(prompt_book_h3.book_json("/api/catalog", timeout=120))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/prompt-book/prompt")
+def prompt_book_prompt(
+    subject: str = "",
+    video: str = "",
+    panties: str = "1",
+    sound: str = "1",
+    identity_only: str = "0",
+    bare_breasts: str = "0",
+    test_mode: str = "0",
+    video_editing: str = "1",
+    threesome: str = "0",
+    subject_b: str = "",
+    beta: str = "0",
+):
+    query = urllib.parse.urlencode({
+        "subject": subject,
+        "video": video,
+        "panties": panties,
+        "sound": sound,
+        "identity_only": identity_only,
+        "bare_breasts": bare_breasts,
+        "use_start_frame": "0",
+        "test_mode": test_mode,
+        "video_editing": video_editing,
+        "threesome": threesome,
+        "subject_b": subject_b,
+        "beta": beta,
+    })
+    try:
+        baked = prompt_book_h3.book_json("/api/prompt?" + query)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"prompt": baked.get("prompt") or "", "duration": baked.get("duration") or "", "width": baked.get("width") or 0, "height": baked.get("height") or 0}
+
+
+@app.api_route("/api/prompt-book/media/video/{name}", methods=["GET", "HEAD"])
+def prompt_book_video(name: str, request: Request):
+    safe = Path(str(name or "")).name
+    if not safe or safe != str(name):
+        raise HTTPException(400, "Bad video name")
+    url = f"{prompt_book_h3.PROMPT_BOOK_BASE}/media/video/{Path(safe).stem}.mp4"
+    headers = {}
+    ranged = request.headers.get("range")
+    if request.method == "HEAD" and not ranged:
+        ranged = "bytes=0-0"
+    if ranged:
+        headers["Range"] = ranged
+    try:
+        upstream = requests.get(url, headers=headers, stream=True, timeout=(10, 120))
+    except requests.RequestException as exc:
+        raise HTTPException(400, "Prompt book video is not reachable") from exc
+    if upstream.status_code >= 400:
+        upstream.close()
+        raise HTTPException(404, "Prompt book video was not found")
+    out_headers = {}
+    for key in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+        if upstream.headers.get(key):
+            out_headers[key] = upstream.headers[key]
+    out_headers.setdefault("Accept-Ranges", "bytes")
+    if request.method == "HEAD":
+        upstream.close()
+        return Response(status_code=upstream.status_code, headers=out_headers, media_type=out_headers.get("Content-Type", "video/mp4"))
+
+    def body():
+        try:
+            for chunk in upstream.iter_content(256 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    return StreamingResponse(body(), status_code=upstream.status_code, headers=out_headers, media_type=out_headers.get("Content-Type", "video/mp4"))
+
+
+@app.get("/api/prompt-book/media/{kind}/{name}")
+def prompt_book_media(kind: str, name: str):
+    try:
+        content, ctype = prompt_book_h3.fetch_media(kind, name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return Response(content, media_type=ctype)
+
+
+@app.get("/api/prompt-book/workflows")
+def prompt_book_workflows():
+    items = prompt_book_h3.workflow_catalog()
+    try:
+        helper = require_h3_s3()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "workflows": items}
+    storage = h3_storage_settings(settings())
+    for item in items:
+        remote = prompt_book_h3.object_size(helper, item["key"])
+        item["remote_bytes"] = remote
+        item["on_volume"] = bool(item["local_ready"] and remote == item["local_bytes"])
+    return {
+        "ok": True,
+        "network_volume_id": storage.get("s3_bucket") or "",
+        "workflows": items,
+    }
+
+
+@app.post("/api/prompt-book/workflows/upload")
+def prompt_book_workflow_upload(data: dict[str, Any] | None = None):
+    force = bool((data or {}).get("force"))
+    try:
+        helper = require_h3_s3()
+        items = prompt_book_h3.upload_prompt_book_workflows(helper, force)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    storage = h3_storage_settings(settings())
+    return {"ok": True, "network_volume_id": storage.get("s3_bucket") or "", "workflows": items}
+
+
+@app.post("/api/run/prompt-book")
+async def run_prompt_book(data: dict[str, Any]):
+    try:
+        request, meta = await run_in_threadpool(prompt_book_h3.build_prompt_book_h3_request, data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    result = await run_h3(request)
+    if isinstance(result, dict):
+        result["prompt_book"] = meta
+    return result
+
+
 @app.post("/api/run/h3")
 async def run_h3(data: dict[str, Any]):
     data = dict(data)
@@ -4622,8 +4792,11 @@ async def run_h3(data: dict[str, Any]):
                 data['sampler'] = 'h3_turbo'
             elif data.get('sampler') == 'h3_turbo':
                 raise ValueError('LightX2V requires a normal sampler')
-            if variant_options['latent_upscale'] and variant_options['pass1_split'] >= int(data.get('steps',6)):
-                raise ValueError('First-pass split must be below total schedule steps')
+            if variant_options['latent_upscale'] and variant_options['pass1_split'] > int(data.get('steps',6)):
+                raise ValueError('First-pass split cannot exceed total schedule steps')
+            if (variant_options['latent_upscale'] and variant_options['pass1_split'] == int(data.get('steps',6))
+                    and variant_options['second_pass_sigma'] == 4):
+                raise ValueError('Remaining sigmas require a first-pass split below total steps')
     except (ValueError, TypeError) as exc:
         raise HTTPException(400, str(exc)) from exc
     if data.get("source_workflow") == "samimate":
@@ -4728,7 +4901,7 @@ async def run_h3(data: dict[str, Any]):
         "cache_threshold": cache_value,
         "attention": str(data.get("attention") or "auto").lower(),
         "aspect_ratio": str(data.get("aspect_ratio") or "16:9 (Widescreen)"),
-        "filename_prefix": str(data.get("filename_prefix") or "RunPod_Media_Console_H3"),
+        "filename_prefix": h3_output_prefix(data.get("filename_prefix")),
         "model": active_model,
         "clip": text_encoder,
         "video_vae": video_vae,
@@ -4869,7 +5042,7 @@ async def run_h3(data: dict[str, Any]):
             "audio_vae", "clip_projection", "turbo_enabled", "turbo_family", "turbo_lora", "turbo_strength",
             "loras", "first_frame", "last_frame", "references", "reference_videos", "reference_video_audio", "reference_video_settings", "reference_audios", "audio",
             "use_reference_audio_as_output", "output_upload_urls", "workflow", "output_layout", "masked_edit",
-            "workflow_variant", "output_mode", "photos", "keyframe_positions", "use_multi_image", "latent_upscale", "rtx_upscale", "use_larry", "final_megapixels", "second_pass_sigma", "pass1_split", "latent_upscale_model",
+            "workflow_variant", "output_mode", "photos", "keyframe_positions", "use_multi_image", "latent_upscale", "rtx_upscale", "use_larry", "final_megapixels", "second_pass_sigma", "pass1_split", "latent_upscale_model", "diagnostic_frames",
         }
         conflicts = sorted(protected.intersection(advanced))
         if conflicts:
