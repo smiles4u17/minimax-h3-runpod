@@ -16,7 +16,7 @@ from h3_workflow_options import workflow_options, validate_keyframes, variant_de
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v15.93-prompt-book"
+APP_VERSION = "web-v16.02-prompt-book-h3-parity"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -4888,6 +4888,8 @@ async def run_h3(data: dict[str, Any]):
     if not 0 <= turbo_strength <= 2:
         raise HTTPException(400, "H3 Turbo strength must be between 0 and 2")
     active_model = ref2va_model if task == "r2v" else fl2va_model
+    if turbo_enabled and "turbo-hybrid_beta5" in active_model.casefold():
+        raise HTTPException(400, "The beta5 Turbo-hybrid checkpoint is already accelerated. Disable the separate Turbo LoRA (No Turbo in H3) and choose a regular sampler such as Euler; this combination failed in the worker AdaLN patch.")
     payload: dict[str, Any] = {
         "task": task,
         "prompt": prompt,

@@ -195,6 +195,47 @@ class PromptBookH3Tests(unittest.TestCase):
                 {"subject_id": "ada", "video_id": "clip"}, catalog=catalog, baked={"prompt": "Test prompt"})
         self.assertEqual(request["reference_video_audio"], [False])
 
+    def test_main_h3_generation_is_inherited_without_stale_references(self):
+        main = {
+            "task": "r2v", "workflow_variant": "ref2v_20260920",
+            "steps": 8, "sampler": "res_multistep", "scheduler": "beta",
+            "ref2va_model": "my-working-ref2v.safetensors", "text_encoder": "encoder.safetensors",
+            "video_vae": "my-video-vae.safetensors", "audio_vae": "my-audio-vae.safetensors",
+            "megapixels": 0.4, "final_megapixels": 0.9,
+            "latent_upscale": True, "rtx_upscale": False,
+            "output_mode": "rtx",  # obsolete setting must not override the switches
+            "pass1_split": 8, "second_pass_sigma": 5,
+            "turbo_enabled": False, "use_larry": False, "cache_enabled": False,
+            "attention": "native", "seed_random": False, "seed": 12345,
+            "loras": [{"name": "first.safetensors", "strength": 0.5},
+                      {"name": "H3/shared.safetensors", "strength": 0.7}],
+            "prompt": "Stale H3 prompt", "photo_paths": ["stale.jpg"],
+            "reference_video_paths": ["stale.mp4"],
+        }
+        request, meta = prompt_book_h3.build_prompt_book_h3_request(
+            {"subject_id": "ada", "video_id": "clip", "h3_generation": main,
+             "loras": [{"name": "SHARED.safetensors", "strength": 0.9},
+                       {"name": "extra.safetensors", "strength": 0.8}]},
+            catalog=self.catalog(), baked={"prompt": "Baked from Prompt Book"})
+        for field in ("steps", "sampler", "scheduler", "ref2va_model", "text_encoder",
+                      "video_vae", "audio_vae", "megapixels", "final_megapixels",
+                      "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
+                      "turbo_enabled", "use_larry", "cache_enabled", "attention", "seed"):
+            self.assertEqual(request[field], main[field], field)
+        self.assertEqual(request["prompt"], "Baked from Prompt Book")
+        self.assertNotIn("output_mode", request)
+        self.assertEqual(request["photo_paths"][0], r"C:\stills\ada.jpg")
+        self.assertEqual(request["reference_video_paths"], [r"C:\clips\clip.mp4"])
+        self.assertEqual(len(request["loras"]), 3)
+        self.assertEqual(request["loras"][1], {"name": "SHARED.safetensors", "strength": 0.9})
+        self.assertEqual(meta["model"], "my-working-ref2v.safetensors")
+        self.assertEqual(meta["workflow_id"], "main_h3")
+        with self.assertRaisesRegex(ValueError, "main H3 tab to Ref2V"):
+            prompt_book_h3.build_prompt_book_h3_request(
+                {"subject_id": "ada", "video_id": "clip",
+                 "h3_generation": {**main, "task": "fl2v"}},
+                catalog=self.catalog(), baked={"prompt": "Test"})
+
     def test_upload_skips_matching_volume_object_and_verifies_size(self):
         for spec in prompt_book_h3.PROMPT_BOOK_WORKFLOWS.values():
             (self.workflow_root / spec["filename"]).write_text('{"nodes":[]}', encoding="utf-8")
@@ -280,6 +321,107 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertNotIn("volume_path", response.json()["prompt_book"])
         self.assertNotIn("secret", json.dumps(response.json()["prompt_book"]))
         upload.assert_not_called()
+
+    def test_prompt_book_reuses_main_h3_worker_generation_payload(self):
+        submitted = []
+        def fake_submit(endpoint, key, payload, settings):
+            submitted.append(payload)
+            return {"id": f"job-{len(submitted)}"}
+
+        def fake_book(path, timeout=60):
+            return self.catalog() if path.startswith("/api/catalog") else {"prompt": "Book prompt"}
+
+        settings = {
+            "runpod_api_key": "key", "h3_endpoint_id": "h3-endpoint",
+            "s3_endpoint_url": "https://s3.example", "s3_access_key_id": "access",
+            "s3_secret_access_key": "secret",
+            "h3_storage": {"s3_bucket": "h3-bucket", "s3_region": "test-1"},
+            "h3": {"ref2va_model": "ref.safetensors", "text_encoder": "clip.safetensors",
+                   "video_vae": "video.safetensors", "audio_vae": "audio.safetensors"},
+        }
+        main = {
+            "settings": settings, "task": "r2v", "workflow_variant": "ref2v_20260920",
+            "use_multi_image": False, "use_larry": False, "turbo_enabled": False,
+            "ref2va_model": "ref.safetensors", "text_encoder": "clip.safetensors",
+            "video_vae": "video.safetensors", "audio_vae": "audio.safetensors",
+            "sampler": "euler", "scheduler": "simple", "steps": 8, "pass1_split": 7,
+            "second_pass_sigma": 2, "latent_upscale": True, "rtx_upscale": False,
+            "megapixels": 0.2, "final_megapixels": 1.0,
+            "attention": "sage", "cache_enabled": True, "cache_threshold": 0.18,
+            "seed_random": False, "seed": 12345, "duration": 2,
+            "aspect_ratio": "9:16 (Portrait Widescreen)", "filename_prefix": "H3",
+            "delivery": "auto", "advanced_json": "{}",
+            "photo_paths": [r"C:\stills\ada.jpg", r"C:\stills\ada-2.jpg", "", ""],
+            "keyframe_positions": ["", "", "", ""],
+            "reference_video_paths": [r"C:\clips\clip.mp4"],
+            "reference_video_audio": [False],
+            "reference_video_settings": [{"force_rate": 24, "start_frame": 0,
+                                          "select_every_nth": 1, "frame_load_cap": 56}],
+            "reference_audio_paths": [], "use_reference_audio_as_output": False,
+            "prompt": "Book prompt", "loras": [{"name": "main.safetensors", "strength": 0.6}],
+        }
+        with (
+            mock.patch.object(prompt_book_h3, "book_json", side_effect=fake_book),
+            mock.patch.object(prompt_book_h3, "video_has_audio", return_value=False),
+            mock.patch.object(media_console, "submit", side_effect=fake_submit),
+            mock.patch.object(media_console, "h3_asset_payload", return_value={"volume_path": "/runpod-volume/input/mock"}),
+            mock.patch.object(media_console, "record_job_event"),
+        ):
+            normal = self.client.post("/api/run/h3", json=main)
+            book = self.client.post("/api/run/prompt-book", json={
+                "settings": settings, "subject_id": "ada", "video_id": "clip",
+                "h3_generation": main, "duration": 2,
+                "aspect_ratio": "9:16 (Portrait Widescreen)",
+                "loras": [{"name": "extra.safetensors", "strength": 0.8}],
+            })
+        self.assertEqual(normal.status_code, 200, normal.text)
+        self.assertEqual(book.status_code, 200, book.text)
+        self.assertEqual(len(submitted), 2)
+        for field in ("task", "workflow_variant", "model", "clip", "video_vae", "audio_vae",
+                      "sampler", "scheduler", "steps", "pass1_split", "second_pass_sigma",
+                      "latent_upscale", "rtx_upscale", "megapixels", "final_megapixels",
+                      "attention", "cache_enabled", "cache_threshold", "seed", "turbo_enabled",
+                      "references", "reference_videos", "reference_video_audio",
+                      "reference_video_settings", "photos", "keyframe_positions"):
+            self.assertEqual(submitted[1].get(field), submitted[0].get(field), field)
+        self.assertEqual(submitted[1]["loras"], [
+            {"name": "H3/main.safetensors", "strength": 0.6},
+            {"name": "H3/extra.safetensors", "strength": 0.8},
+        ])
+
+    def test_beta5_separate_turbo_is_rejected_before_upload_for_both_routes(self):
+        settings = {
+            "runpod_api_key": "key", "h3_endpoint_id": "h3-endpoint",
+            "s3_endpoint_url": "https://s3.example", "s3_access_key_id": "access",
+            "s3_secret_access_key": "secret",
+            "h3_storage": {"s3_bucket": "h3-bucket", "s3_region": "test-1"},
+            "h3": {"text_encoder": "clip.safetensors", "video_vae": "video.safetensors",
+                   "audio_vae": "audio.safetensors"},
+        }
+        generation = {
+            "task": "r2v", "workflow_variant": "ref2v_20260920",
+            "ref2va_model": prompt_book_h3.BETA5_MODEL,
+            "turbo_enabled": True, "use_larry": True,
+            "turbo_family": "larry", "sampler": "h3_turbo",
+            "turbo_lora": "minimax_h3_turbo_v4_step600_ema.safetensors",
+            "prompt": "Test", "photo_paths": [r"C:\stills\ada.jpg"],
+        }
+        with (
+            mock.patch.object(prompt_book_h3, "book_json", side_effect=lambda path, timeout=60:
+                              self.catalog() if path.startswith("/api/catalog") else {"prompt": "Book prompt"}),
+            mock.patch.object(media_console, "h3_asset_payload") as asset,
+            mock.patch.object(media_console, "submit") as submit,
+        ):
+            normal = self.client.post("/api/run/h3", json={**generation, "settings": settings})
+            book = self.client.post("/api/run/prompt-book", json={
+                "settings": settings, "subject_id": "ada", "video_id": "clip",
+                "h3_generation": generation,
+            })
+        for response in (normal, book):
+            self.assertEqual(response.status_code, 400, response.text)
+            self.assertIn("already accelerated", response.text)
+        asset.assert_not_called()
+        submit.assert_not_called()
 
 
 if __name__ == "__main__":

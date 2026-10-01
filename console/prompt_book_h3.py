@@ -25,6 +25,21 @@ WORKFLOW_ROOT = Path(os.environ.get("PROMPT_BOOK_WORKFLOW_DIR", r"Z:\Grok\workfl
 
 BETA5_MODEL = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
 
+# Prompt Book supplies content, not a second sampling configuration. Keep this
+# allowlist in step with the normal H3 submission controls; never copy its
+# stale photo/video/prompt fields into the selected book request.
+H3_GENERATION_FIELDS = {
+    "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
+    "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
+    "latent_upscale_model", "cache_enabled", "cache_threshold", "attention",
+    "seed", "seed_random", "turbo_enabled", "use_larry", "turbo_family",
+    "turbo_lora", "turbo_strength", "pdd_enabled", "sampling_preset",
+    "sparse_keep_percent", "sparse_tau", "sparse_start_percent",
+    "sparse_end_percent", "sparse_trained_weights", "ref2va_model",
+    "text_encoder", "video_vae", "audio_vae", "clip_projection",
+    "advanced_json", "delivery", "max_runtime_seconds",
+}
+
 PROMPT_BOOK_WORKFLOWS: dict[str, dict[str, Any]] = {
     "ref2v_4step": {
         "label": "Ref2V Sage+Sol 4-step",
@@ -574,17 +589,41 @@ def build_prompt_book_h3_request(
         "loras": data.get("loras") or [],
         "advanced_json": "{}",
     })
+    inherited = data.get("h3_generation")
+    if inherited is not None:
+        if not isinstance(inherited, dict):
+            raise ValueError("H3 generation settings must be an object")
+        if inherited.get("task") != "r2v" or inherited.get("workflow_variant") != "ref2v_20260920":
+            raise ValueError("Set the main H3 tab to Ref2V before sending a Prompt Book scene")
+        request.update({key: inherited[key] for key in H3_GENERATION_FIELDS if key in inherited})
+        main_loras = inherited.get("loras") or []
+        extra_loras = data.get("loras") or []
+        if not isinstance(main_loras, list) or not isinstance(extra_loras, list):
+            raise ValueError("H3 LoRAs must be a list")
+        loras = list(main_loras)
+        def lora_key(item: dict[str, Any]) -> str:
+            return str(item.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        for extra in extra_loras:
+            if not isinstance(extra, dict) or not str(extra.get("name") or "").strip():
+                raise ValueError("Prompt Book LoRAs need a name")
+            loras = [item for item in loras if not isinstance(item, dict) or
+                     lora_key(item) != lora_key(extra)]
+            loras.append(extra)
+        request["loras"] = loras
+        # The selected book cards and baked prompt are the only input changes.
+        # Scene trim/duration and explicit aspect remain Prompt Book controls.
+        request["seed_random"] = inherited.get("seed_random", False)
     if not request["seed_random"]:
-        request["seed"] = data.get("seed", 0)
+        request["seed"] = inherited.get("seed", 0) if inherited is not None else data.get("seed", 0)
     if isinstance(data.get("settings"), dict):
         request["settings"] = data["settings"]
     endpoint = str(data.get("h3_endpoint_id") or "").strip()
     if endpoint:
         request["h3_endpoint_id"] = endpoint
     meta = {
-        "workflow_id": str(data.get("workflow_id") or "ours"),
-        "workflow_label": preset["label"],
-        "model": BETA5_MODEL,
+        "workflow_id": "main_h3" if inherited is not None else str(data.get("workflow_id") or "ours"),
+        "workflow_label": "Main H3 Ref2V settings" if inherited is not None else preset["label"],
+        "model": request.get("ref2va_model") or BETA5_MODEL,
         "subject": subject.get("label") or subject_id,
         "scene": scene.get("label") or video_id,
         "duration": duration,
@@ -592,6 +631,6 @@ def build_prompt_book_h3_request(
         "source_duration": scene.get("duration_sec") or 0,
         "aspect_ratio": request["aspect_ratio"],
         "photos": len(photos),
-        "steps": steps,
+        "steps": request["steps"],
     }
     return request, meta

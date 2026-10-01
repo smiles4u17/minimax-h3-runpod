@@ -1,9 +1,4 @@
 let PB = {catalog: null, subject: '', subjectB: '', video: '', subjectFolder: '', sceneFolder: 'inspected', dirty: false, aspectTouched: false, durationTouched: false, startTouched: false, syncing: false};
-const PB_PRESETS = {
-  ours: {steps: 8, megapixels: 0.2, final: 1, latent: true, cache: 0.244, note: 'Ours: 0.2 MP, then a 1 MP latent refine. Split stays one below the step count.'},
-  fast5090: {steps: 4, megapixels: 0.5, final: 0.5, latent: false, cache: 0.2, note: '5090 fast is one pass. Latent refine and its sigmas stay off.'},
-  quality5090: {steps: 8, megapixels: 0.2, final: 1, latent: true, cache: 0.2, note: '5090 quality keeps the 1 MP refine. Set the split and second-pass sigmas in Generation.'},
-};
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
 
 function pbEsc(value) {
@@ -69,30 +64,10 @@ function pbRemoveLora(index) {
 }
 
 function loadPromptBook() {
-  if (!window.PB_SAMPLING_LOADED) {
-    window.PB_SAMPLING_LOADED = true;
-    fillPromptBookSampling();
-  }
   if (!PB.catalog) pbLoadCatalog();
   void pbLoadLoraLibrary();
   pbRenderLoras();
-}
-
-async function fillPromptBookSampling() {
-  try {
-    const data = await api('/api/h3/sampling');
-    for (const kind of ['sampler', 'scheduler']) {
-      const el = $('pb_' + kind);
-      if (!el) continue;
-      const current = el.value;
-      for (const value of data[kind + 's'] || []) {
-        if (![...el.options].some(option => option.value === value)) el.add(new Option(value.replaceAll('_', ' '), value));
-      }
-      if ([...el.options].some(option => option.value === current)) el.value = current;
-    }
-  } catch (error) {
-    log('Sampler list unavailable: ' + error.message);
-  }
+  pbH3Summary();
 }
 
 async function pbLoadCatalog() {
@@ -353,61 +328,16 @@ function pbResetPrompt() {
   pbBake(true);
 }
 
-function pbSyncGeneration() {
-  const latent = pbChecked('pb_latent_upscale');
-  for (const id of ['pb_final_megapixels', 'pb_pass1_split', 'pb_second_pass_sigma']) {
-    if ($(id)) $(id).disabled = !latent;
-  }
-  const steps = Number(val('pb_steps')) || 2;
-  const split = Number(val('pb_pass1_split')) || 1;
-  if (latent && split >= steps) set('pb_pass1_split', Math.max(1, steps - 1));
-  if ($('pb_cache_threshold')) $('pb_cache_threshold').disabled = !pbChecked('pb_cache_enabled');
-}
-
-function pbApplyPreset() {
-  const preset = PB_PRESETS[val('pb_workflow')] || PB_PRESETS.ours;
-  set('pb_steps', preset.steps);
-  set('pb_megapixels', preset.megapixels);
-  set('pb_final_megapixels', preset.final);
-  setChk('pb_latent_upscale', preset.latent);
-  setChk('pb_cache_enabled', true);
-  set('pb_cache_threshold', preset.cache);
-  set('pb_pass1_split', Math.max(1, preset.steps - 1));
-  set('pb_second_pass_sigma', '2');
-  pbSyncGeneration();
-  const note = $('pb_preset_note');
-  if (note) note.textContent = preset.note;
-}
-
-function pbSteps() {
-  const number = Number(val('pb_steps'));
-  if (!Number.isInteger(number) || number < 2 || number > 30) throw new Error('Steps must be a whole number from 2 to 30.');
-  return number;
-}
-
-function pbGeneration() {
-  return {
-    steps: pbSteps(),
-    sampler: val('pb_sampler') || 'euler',
-    scheduler: val('pb_scheduler') || 'simple',
-    megapixels: Number(val('pb_megapixels')),
-    final_megapixels: Number(val('pb_final_megapixels')),
-    latent_upscale: pbChecked('pb_latent_upscale'),
-    rtx_upscale: pbChecked('pb_rtx_upscale'),
-    pass1_split: Number(val('pb_pass1_split')),
-    second_pass_sigma: Number(val('pb_second_pass_sigma')),
-    cache_enabled: pbChecked('pb_cache_enabled'),
-    cache_threshold: Number(val('pb_cache_threshold')),
-    attention: val('pb_attention') || 'sage',
-    aspect_ratio: val('pb_aspect_ratio'),
-    seed_random: pbChecked('pb_seed_random'),
-    sparse_keep_percent: Number(val('pb_sparse_keep_percent')),
-    sparse_tau: Number(val('pb_sparse_tau')),
-    sparse_start_percent: Number(val('pb_sparse_start_percent')),
-    sparse_end_percent: Number(val('pb_sparse_end_percent')),
-    sparse_trained_weights: pbChecked('pb_sparse_trained_weights'),
-    loras: pbLoras(),
-  };
+function pbH3Summary() {
+  const note = $('pb_h3_settings_summary');
+  if (!note || typeof h3Settings !== 'function') return;
+  const h3 = h3Settings();
+  const incompatibleTurbo = h3.turbo_enabled && /turbo-hybrid_beta5/i.test(h3.ref2va_model || '');
+  note.textContent = h3.task !== 'r2v' || h3.workflow_variant !== 'ref2v_20260920'
+    ? 'Set the main H3 tab to Ref2V before sending a Prompt Book scene.'
+    : incompatibleTurbo
+      ? 'The selected beta5 model already includes Turbo. Enable No Turbo and choose Euler in the main H3 tab before sending; the extra Turbo LoRA failed on the worker.'
+      : `Using main H3: ${h3.ref2va_model || 'selected Ref2V model'} · ${h3.sampler}/${h3.scheduler} · ${h3.steps} steps · ${h3.megapixels} MP${h3.latent_upscale ? ` → ${h3.final_megapixels} MP` : ''}${h3.rtx_upscale ? ' → RTX' : ''} · ${(h3.loras || []).length} main H3 LoRA(s). Prompt Book LoRAs below are added.`;
 }
 
 async function runPromptBook() {
@@ -416,14 +346,20 @@ async function runPromptBook() {
   try {
     if (!PB.subject || !PB.video) return alert('Pick a subject and a scene.');
     if (!val('pb_prompt').trim()) return alert('The prompt is empty.');
+    const generation = h3Settings();
+    if (generation.task !== 'r2v' || generation.workflow_variant !== 'ref2v_20260920')
+      throw new Error('Set the main H3 tab to Ref2V before sending a Prompt Book scene.');
+    if (generation.turbo_enabled && /turbo-hybrid_beta5/i.test(generation.ref2va_model || ''))
+      throw new Error('Enable No Turbo and choose Euler in the main H3 tab: beta5 already includes Turbo, and a separate Turbo LoRA failed on the worker.');
     if (button) {
       button.disabled = true;
       button.textContent = 'Submitting...';
     }
     if (status) status.textContent = 'Uploading the still and clip, then sending to MiniMax H3...';
     const payload = {
+      settings: payloadSettings(),
       h3_endpoint_id: val('h3_endpoint_id'),
-      workflow_id: val('pb_workflow') || 'ours',
+      h3_generation: generation,
       subject_id: PB.subject,
       video_id: PB.video,
       subject_b: pbChecked('pb_threesome') ? PB.subjectB : '',
@@ -440,7 +376,8 @@ async function runPromptBook() {
       duration: Number(val('pb_duration')) || 5,
       trim_start: val('pb_video_start') || '0',
       trim_end: val('pb_video_end') || '',
-      ...pbGeneration(),
+      aspect_ratio: val('pb_aspect_ratio'),
+      loras: pbLoras(),
     };
     await submitRun('/api/run/prompt-book', payload, 'promptbook');
     if (status) status.textContent = 'Job submitted';
@@ -457,10 +394,9 @@ async function runPromptBook() {
 }
 
 function bindPromptBook() {
-  const select = $('pb_workflow');
-  if (!select || select.dataset.bound) return;
-  select.dataset.bound = '1';
-  select.addEventListener('change', pbApplyPreset);
+  const button = $('pb_run_button');
+  if (!button || button.dataset.bound) return;
+  button.dataset.bound = '1';
   if (document.querySelector('.videoTools[data-prefix="pb"]')) {
     buildVideoTools('pb');
     mountTrimVideoPreview('pb');
@@ -530,7 +466,6 @@ function bindPromptBook() {
     pbRenderSubjects();
     pbBake(false);
   });
-  for (const id of ['pb_latent_upscale', 'pb_cache_enabled', 'pb_steps']) $(id)?.addEventListener('change', pbSyncGeneration);
   for (const id of ['pb_duration', 'pb_length']) {
     $(id)?.addEventListener('input', () => {
       if (PB.syncing) return;
@@ -549,7 +484,7 @@ function bindPromptBook() {
       pbApplyWindow(raw, Number(val('pb_duration')) || 5);
     });
   }
-  pbApplyPreset();
+  pbH3Summary();
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindPromptBook);
