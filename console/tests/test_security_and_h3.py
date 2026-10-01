@@ -20,7 +20,7 @@ class SecurityAndH3Tests(unittest.TestCase):
         data={"settings":{"runpod_api_key":"key","h3_endpoint_id":"test"},
               "workflow_variant":"fflf_20260920","prompt":"A toy robot","steps":4,
               "photo_paths":["robot.png","end.png","", ""],"keyframe_positions":["0%","100%","", ""],
-              "sampler":"euler", "use_larry":False,"pass1_split":3}
+              "sampler":"euler", "use_larry":False,"pass1_split":3,"diagnostic_frames":True}
         with (mock.patch.object(media_console,"configured_s3_helper",return_value=object()),
               mock.patch.object(media_console,"h3_asset_payload",return_value={"data":"fixture"}) as upload,
               mock.patch.object(media_console,"record_job_event"),
@@ -29,6 +29,7 @@ class SecurityAndH3Tests(unittest.TestCase):
             self.assertEqual(response.status_code,200,response.text)
             payload=response.json()['payload']
             self.assertEqual(payload['task'],'fl2v_20260920')
+            self.assertTrue(payload['diagnostic_frames'])
             self.assertEqual(payload['photos'][:2],[payload['first_frame'],payload['last_frame']])
             self.assertTrue(payload['latent_upscale']);self.assertTrue(payload['rtx_upscale'])
             submit.assert_not_called()

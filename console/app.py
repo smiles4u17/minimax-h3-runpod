@@ -4952,6 +4952,7 @@ async def run_h3(data: dict[str, Any]):
         payload["turbo_lora"] = turbo_lora
         payload["turbo_strength"] = turbo_strength
     payload.update(variant_options)
+    payload["diagnostic_frames"] = as_bool(data.get("diagnostic_frames"), False)
     if new_variant:
         payload['task'] = task + '_20260920'
     effective_delivery = delivery
