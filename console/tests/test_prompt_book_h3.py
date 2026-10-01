@@ -119,6 +119,9 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertEqual(trimmed["duration"], 8)
         self.assertEqual(trimmed["reference_video_settings"][0]["start_frame"], 48)
         self.assertEqual(trimmed["reference_video_settings"][0]["force_rate"], 24)
+        self.assertEqual(trimmed["reference_video_audio"], [True])
+        self.assertEqual(trimmed["audio_vae"], "minimax_h3_audio_vae_fp32.safetensors")
+        self.assertFalse(trimmed["use_reference_audio_as_output"])
         explicit, explicit_meta = prompt_book_h3.build_prompt_book_h3_request(
             {"workflow_id": "ours", "subject_id": "ada", "video_id": "clip", "duration": 5, "trim_start": 2},
             catalog=self.catalog(),
@@ -230,11 +233,46 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertEqual(request["loras"][1], {"name": "SHARED.safetensors", "strength": 0.9})
         self.assertEqual(meta["model"], "my-working-ref2v.safetensors")
         self.assertEqual(meta["workflow_id"], "main_h3")
-        with self.assertRaisesRegex(ValueError, "main H3 tab to Ref2V"):
-            prompt_book_h3.build_prompt_book_h3_request(
-                {"subject_id": "ada", "video_id": "clip",
-                 "h3_generation": {**main, "task": "fl2v"}},
-                catalog=self.catalog(), baked={"prompt": "Test"})
+        other_tab, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {"subject_id": "ada", "video_id": "clip",
+             "h3_generation": {**main, "task": "fl2v"}},
+            catalog=self.catalog(), baked={"prompt": "Test"})
+        self.assertEqual(other_tab["task"], "r2v")
+        self.assertEqual(other_tab["workflow_variant"], "ref2v_20260920")
+
+    def test_own_controls_override_legacy_main_h3_settings(self):
+        request, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {"subject_id": "ada", "video_id": "clip", "steps": 20,
+             "sampler": "res_multistep", "scheduler": "karras",
+             "pass1_split": 14, "second_pass_sigma": 5, "latent_upscale": True,
+             "ref2va_model": "selected-ref2v.safetensors", "seed_random": False,
+             "seed": 42, "loras": [{"name": "book.safetensors", "strength": 0.7}],
+             "h3_generation": {"task": "fl2v", "steps": 4, "sampler": "h3_turbo",
+                               "scheduler": "simple", "turbo_enabled": True,
+                               "turbo_lora": "turbo.safetensors", "seed": 99}},
+            catalog=self.catalog(), baked={"prompt": "Book prompt"})
+        self.assertEqual(request["task"], "r2v")
+        self.assertEqual(request["workflow_variant"], "ref2v_20260920")
+        self.assertEqual((request["steps"], request["sampler"], request["scheduler"]),
+                         (20, "res_multistep", "karras"))
+        self.assertEqual((request["pass1_split"], request["second_pass_sigma"]), (14, 5))
+        self.assertEqual(request["ref2va_model"], "selected-ref2v.safetensors")
+        self.assertEqual(request["seed"], 42)
+        self.assertFalse(request["turbo_enabled"])
+        self.assertNotIn("turbo_lora", request)
+        self.assertEqual(request["loras"], [{"name": "book.safetensors", "strength": 0.7}])
+
+    def test_all_catalog_sampling_choices_are_accepted(self):
+        for sampler in sorted(prompt_book_h3.H3_SAMPLERS - {"h3_turbo"}):
+            request, _ = prompt_book_h3.build_prompt_book_h3_request(
+                {"subject_id": "ada", "video_id": "clip", "sampler": sampler},
+                catalog=self.catalog(), baked={"prompt": "Book prompt"})
+            self.assertEqual(request["sampler"], sampler)
+        for scheduler in sorted(prompt_book_h3.H3_SCHEDULERS):
+            request, _ = prompt_book_h3.build_prompt_book_h3_request(
+                {"subject_id": "ada", "video_id": "clip", "scheduler": scheduler},
+                catalog=self.catalog(), baked={"prompt": "Book prompt"})
+            self.assertEqual(request["scheduler"], scheduler)
 
     def test_upload_skips_matching_volume_object_and_verifies_size(self):
         for spec in prompt_book_h3.PROMPT_BOOK_WORKFLOWS.values():
@@ -389,7 +427,7 @@ class PromptBookH3Tests(unittest.TestCase):
             {"name": "H3/extra.safetensors", "strength": 0.8},
         ])
 
-    def test_beta5_separate_turbo_is_rejected_before_upload_for_both_routes(self):
+    def test_beta5_separate_turbo_is_rejected_for_h3_but_disabled_for_prompt_book(self):
         settings = {
             "runpod_api_key": "key", "h3_endpoint_id": "h3-endpoint",
             "s3_endpoint_url": "https://s3.example", "s3_access_key_id": "access",
@@ -409,19 +447,29 @@ class PromptBookH3Tests(unittest.TestCase):
         with (
             mock.patch.object(prompt_book_h3, "book_json", side_effect=lambda path, timeout=60:
                               self.catalog() if path.startswith("/api/catalog") else {"prompt": "Book prompt"}),
-            mock.patch.object(media_console, "h3_asset_payload") as asset,
-            mock.patch.object(media_console, "submit") as submit,
+            mock.patch.object(media_console, "h3_asset_payload", return_value={"volume_path": "/runpod-volume/input/mock"}) as asset,
+            mock.patch.object(media_console, "submit", return_value={"id": "book-job"}) as submit,
+            mock.patch.object(media_console, "record_job_event"),
         ):
             normal = self.client.post("/api/run/h3", json={**generation, "settings": settings})
             book = self.client.post("/api/run/prompt-book", json={
                 "settings": settings, "subject_id": "ada", "video_id": "clip",
                 "h3_generation": generation,
+                "sampler": "res_multistep", "scheduler": "karras", "steps": 20,
+                "latent_upscale": True, "pass1_split": 14, "second_pass_sigma": 5,
             })
-        for response in (normal, book):
-            self.assertEqual(response.status_code, 400, response.text)
-            self.assertIn("already accelerated", response.text)
-        asset.assert_not_called()
-        submit.assert_not_called()
+        self.assertEqual(normal.status_code, 400, normal.text)
+        self.assertIn("already accelerated", normal.text)
+        self.assertEqual(book.status_code, 200, book.text)
+        self.assertTrue(asset.called)
+        self.assertEqual(submit.call_count, 1)
+        payload = submit.call_args.args[2]
+        self.assertFalse(payload["turbo_enabled"])
+        self.assertEqual((payload["sampler"], payload["scheduler"], payload["steps"]),
+                         ("res_multistep", "karras", 20))
+        self.assertEqual((payload["pass1_split"], payload["second_pass_sigma"]), (14, 5))
+        self.assertTrue(payload["latent_upscale"])
+        self.assertNotIn("turbo_lora", payload)
 
 
 if __name__ == "__main__":

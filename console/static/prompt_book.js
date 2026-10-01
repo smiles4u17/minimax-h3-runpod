@@ -1,5 +1,8 @@
 let PB = {catalog: null, subject: '', subjectB: '', video: '', subjectFolder: '', sceneFolder: 'inspected', dirty: false, aspectTouched: false, durationTouched: false, startTouched: false, syncing: false};
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
+const PB_GENERATION_STORE = 'prompt-book-h3-generation-v1';
+const PB_DEFAULT_MODEL = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors';
+const PB_GENERATION_FIELDS = ['model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'cache_enabled', 'cache_threshold'];
 
 function pbEsc(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -66,6 +69,7 @@ function pbRemoveLora(index) {
 function loadPromptBook() {
   if (!PB.catalog) pbLoadCatalog();
   void pbLoadLoraLibrary();
+  void pbLoadGenerationOptions();
   pbRenderLoras();
   pbH3Summary();
 }
@@ -328,16 +332,110 @@ function pbResetPrompt() {
   pbBake(true);
 }
 
+function pbGenerationNumber(id, label, low, high, whole = false) {
+  const raw = val(id).trim();
+  const number = Number(raw);
+  if (!raw || !Number.isFinite(number) || number < low || number > high || (whole && !Number.isInteger(number)))
+    throw new Error(`${label} must be ${whole ? 'a whole number' : 'a number'} from ${low} to ${high}.`);
+  return number;
+}
+
+function pbGenerationSettings() {
+  const steps = pbGenerationNumber('pb_steps', 'Steps', 1, 1000, true);
+  const latent = pbChecked('pb_latent_upscale');
+  const split = latent ? pbGenerationNumber('pb_pass1_split', 'First-pass sigma split', 1, steps, true) : steps;
+  const second = latent ? pbGenerationNumber('pb_second_pass_sigma', 'Second-pass sigmas', 1, 5, true) : 1;
+  if (latent && split === steps && second === 4)
+    throw new Error('Remaining sigmas require a first-pass split below the step count.');
+  const sampler = val('pb_sampler').trim();
+  const scheduler = val('pb_scheduler').trim();
+  if (!sampler || sampler === 'h3_turbo') throw new Error('Choose a non-Turbo sampler for Prompt Book.');
+  if (!scheduler) throw new Error('Choose a scheduler for Prompt Book.');
+  const random = pbChecked('pb_seed_random');
+  return {
+    ref2va_model: val('pb_model').trim() || PB_DEFAULT_MODEL,
+    steps, sampler, scheduler, pass1_split: split, second_pass_sigma: second,
+    megapixels: pbGenerationNumber('pb_megapixels', 'First-pass size', 0.2, 2),
+    latent_upscale: latent,
+    final_megapixels: latent ? pbGenerationNumber('pb_final_megapixels', 'Final size', 0.2, 2) : 0.9,
+    rtx_upscale: pbChecked('pb_rtx_upscale'),
+    diagnostic_frames: pbChecked('pb_diagnostic_frames'),
+    seed_random: random,
+    seed: random ? 0 : pbGenerationNumber('pb_seed', 'Seed', 0, Number.MAX_SAFE_INTEGER, true),
+    attention: val('pb_attention') || 'sage',
+    cache_enabled: pbChecked('pb_cache_enabled'),
+    cache_threshold: pbChecked('pb_cache_enabled') ? pbGenerationNumber('pb_cache_threshold', 'Cache threshold', 0, 1) : 0.18,
+  };
+}
+
+function pbUpdateGenerationControls() {
+  const latent = pbChecked('pb_latent_upscale');
+  for (const id of ['pb_pass1_split', 'pb_second_pass_sigma', 'pb_final_megapixels']) if ($(id)) $(id).disabled = !latent;
+  if ($('pb_seed')) $('pb_seed').disabled = pbChecked('pb_seed_random');
+  if ($('pb_cache_threshold')) $('pb_cache_threshold').disabled = !pbChecked('pb_cache_enabled');
+  pbH3Summary();
+}
+
+function pbRestoreGeneration() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PB_GENERATION_STORE) || '{}');
+    for (const name of PB_GENERATION_FIELDS) {
+      const element = $('pb_' + name);
+      if (!element || !Object.hasOwn(saved, name)) continue;
+      if (element.type === 'checkbox') element.checked = saved[name] === true;
+      else {
+        const choice = String(saved[name]);
+        if (element.tagName === 'SELECT' && !Array.from(element.options).some(option => option.value === choice))
+          element.add(new Option(choice, choice));
+        element.value = choice;
+      }
+    }
+  } catch (error) {
+    log('Prompt Book generation settings could not be restored: ' + error.message);
+  }
+}
+
+function pbSaveGeneration() {
+  const saved = {};
+  for (const name of PB_GENERATION_FIELDS) {
+    const element = $('pb_' + name);
+    if (element) saved[name] = element.type === 'checkbox' ? element.checked : element.value;
+  }
+  try { localStorage.setItem(PB_GENERATION_STORE, JSON.stringify(saved)); } catch {}
+  pbUpdateGenerationControls();
+}
+
+function pbFillOptions(id, names) {
+  const select = $(id);
+  if (!select || !Array.isArray(names) || !names.length) return;
+  const selected = select.value;
+  const unique = [...new Set(names.filter(name => typeof name === 'string' && name.trim()))];
+  select.innerHTML = unique.map(name => `<option value="${pbEsc(name)}">${pbEsc(name)}</option>`).join('');
+  if (selected && !unique.includes(selected)) select.add(new Option(`${selected} (not in current catalog)`, selected));
+  select.value = selected || unique[0];
+}
+
+async function pbLoadGenerationOptions() {
+  try {
+    const sampling = await api('/api/h3/sampling');
+    pbFillOptions('pb_sampler', (sampling.samplers || []).filter(name => name !== 'h3_turbo'));
+    pbFillOptions('pb_scheduler', sampling.schedulers || []);
+  } catch (error) { log('Prompt Book sampling list unavailable: ' + error.message); }
+  try {
+    const models = await api('/api/h3/models');
+    const categories = models.categories || {};
+    pbFillOptions('pb_model', [PB_DEFAULT_MODEL, ...(categories.ref2va || [])]);
+  } catch (error) { log('Prompt Book model list unavailable: ' + error.message); }
+  pbH3Summary();
+}
+
 function pbH3Summary() {
   const note = $('pb_h3_settings_summary');
-  if (!note || typeof h3Settings !== 'function') return;
-  const h3 = h3Settings();
-  const incompatibleTurbo = h3.turbo_enabled && /turbo-hybrid_beta5/i.test(h3.ref2va_model || '');
-  note.textContent = h3.task !== 'r2v' || h3.workflow_variant !== 'ref2v_20260920'
-    ? 'Set the main H3 tab to Ref2V before sending a Prompt Book scene.'
-    : incompatibleTurbo
-      ? 'The selected beta5 model already includes Turbo. Enable No Turbo and choose Euler in the main H3 tab before sending; the extra Turbo LoRA failed on the worker.'
-      : `Using main H3: ${h3.ref2va_model || 'selected Ref2V model'} · ${h3.sampler}/${h3.scheduler} · ${h3.steps} steps · ${h3.megapixels} MP${h3.latent_upscale ? ` → ${h3.final_megapixels} MP` : ''}${h3.rtx_upscale ? ' → RTX' : ''} · ${(h3.loras || []).length} main H3 LoRA(s). Prompt Book LoRAs below are added.`;
+  if (!note) return;
+  try {
+    const h3 = pbGenerationSettings();
+    note.textContent = `Prompt Book Ref2V · separate Turbo off · ${h3.sampler}/${h3.scheduler} · ${h3.steps} steps · ${h3.megapixels} MP${h3.latent_upscale ? ` → ${h3.final_megapixels} MP (split ${h3.pass1_split}, second sigmas ${h3.second_pass_sigma})` : ''}${h3.rtx_upscale ? ' → RTX' : ''} · ${pbLoras().length} Prompt Book LoRA(s).`;
+  } catch (error) { note.textContent = 'Prompt Book settings need attention: ' + error.message; }
 }
 
 async function runPromptBook() {
@@ -346,11 +444,7 @@ async function runPromptBook() {
   try {
     if (!PB.subject || !PB.video) return alert('Pick a subject and a scene.');
     if (!val('pb_prompt').trim()) return alert('The prompt is empty.');
-    const generation = h3Settings();
-    if (generation.task !== 'r2v' || generation.workflow_variant !== 'ref2v_20260920')
-      throw new Error('Set the main H3 tab to Ref2V before sending a Prompt Book scene.');
-    if (generation.turbo_enabled && /turbo-hybrid_beta5/i.test(generation.ref2va_model || ''))
-      throw new Error('Enable No Turbo and choose Euler in the main H3 tab: beta5 already includes Turbo, and a separate Turbo LoRA failed on the worker.');
+    const generation = pbGenerationSettings();
     if (button) {
       button.disabled = true;
       button.textContent = 'Submitting...';
@@ -359,7 +453,7 @@ async function runPromptBook() {
     const payload = {
       settings: payloadSettings(),
       h3_endpoint_id: val('h3_endpoint_id'),
-      h3_generation: generation,
+      ...generation,
       subject_id: PB.subject,
       video_id: PB.video,
       subject_b: pbChecked('pb_threesome') ? PB.subjectB : '',
@@ -397,6 +491,13 @@ function bindPromptBook() {
   const button = $('pb_run_button');
   if (!button || button.dataset.bound) return;
   button.dataset.bound = '1';
+  pbRestoreGeneration();
+  for (const name of PB_GENERATION_FIELDS) {
+    const element = $('pb_' + name);
+    element?.addEventListener('change', pbSaveGeneration);
+    if (element?.type === 'number') element.addEventListener('input', pbUpdateGenerationControls);
+  }
+  pbUpdateGenerationControls();
   if (document.querySelector('.videoTools[data-prefix="pb"]')) {
     buildVideoTools('pb');
     mountTrimVideoPreview('pb');

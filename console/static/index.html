@@ -585,13 +585,40 @@
     <textarea id="pb_prompt" rows="16" title="Baked prompt. Edits here are sent with this job and are not written back to the book."></textarea>
   </div>
   <div class="card" id="pb_generation">
-    <h3>Scene timing and LoRAs</h3>
-    <p class="pbNote">Model, sampling, steps, upscale, seed, and existing LoRAs come from the main H3 tab. Set that tab to Ref2V first. Only the selected Prompt Book references, prompt, scene timing, aspect, and optional LoRAs below are changed here.</p>
+    <h3>Prompt Book H3 settings</h3>
+    <p class="pbNote">Ref2V uses the selected book references and prompt. Separate Turbo is always off here; these controls do not change the main H3 tab. Only LoRAs added below are sent.</p>
     <div class="fields">
       <label title="Where the source clip begins, in seconds.">Start Seconds<input id="pb_start" type="number" min="0" step="0.1" value="0"></label>
       <label title="Generated video length from 1 to 15 seconds, measured from Start Seconds.">Duration Seconds<input id="pb_duration" type="number" min="1" max="15" step="0.1" value="5"></label>
       <label title="Aspect sent to the H3 resolution selector. Picking a scene fills this from the clip until you change it.">Aspect Ratio<select id="pb_aspect_ratio"><option value="1:1 (Square)">1:1 — Square</option><option value="2:3 (Portrait Photo)">2:3 — Portrait Photo</option><option value="3:2 (Photo)">3:2 — Photo</option><option value="3:4 (Portrait Standard)">3:4 — Portrait Standard</option><option value="4:3 (Standard)">4:3 — Standard</option><option value="9:16 (Portrait Widescreen)">9:16 — Vertical / Portrait Widescreen</option><option value="16:9 (Widescreen)" selected>16:9 — Widescreen</option><option value="21:9 (Ultrawide)">21:9 — Ultrawide</option></select></label>
     </div>
+    <h4>Model and sampling</h4>
+    <div class="fields">
+      <label>Ref2V model<select id="pb_model"><option value="10Eros_Max_h3_TURBO-hybrid_beta5.safetensors">10Eros_Max_h3_TURBO-hybrid_beta5.safetensors</option></select></label>
+      <label>Sampler<select id="pb_sampler"><option value="euler">Euler</option></select></label>
+      <label>Scheduler<select id="pb_scheduler"><option value="simple">Simple</option></select></label>
+      <label>Steps<input id="pb_steps" type="number" min="1" step="1" value="8"></label>
+      <label title="First pass stops after this many steps of the full sigma schedule. Only used when latent upscale is on.">First-pass sigma split<input id="pb_pass1_split" type="number" min="1" step="1" value="6"></label>
+      <label title="Second pass uses a fresh manual sigma schedule, or the remaining first-pass sigmas. Only used when latent upscale is on.">Second-pass sigmas<select id="pb_second_pass_sigma"><option value="1" selected>1 — 3 steps</option><option value="2">2 — 4 steps</option><option value="3">3 — 5 steps</option><option value="4">4 — remaining sigmas</option><option value="5">5 — 8 steps</option></select></label>
+    </div>
+    <h4>Resolution and output</h4>
+    <div class="fields">
+      <label>First-pass size (MP)<input id="pb_megapixels" type="number" min="0.2" max="2" step="0.05" value="0.2"></label>
+      <label><input id="pb_latent_upscale" type="checkbox"> Use latent upscale / second pass</label>
+      <label>Final size (MP)<input id="pb_final_megapixels" type="number" min="0.2" max="2" step="0.05" value="0.9"></label>
+      <label><input id="pb_rtx_upscale" type="checkbox"> Use RTX video upscale</label>
+      <label><input id="pb_diagnostic_frames" type="checkbox"> Save first-pass and pre-RTX diagnostic frames</label>
+    </div>
+    <details>
+      <summary>Seed, attention, and cache</summary>
+      <div class="fields">
+        <label><input id="pb_seed_random" type="checkbox" checked> Random seed each run</label>
+        <label>Seed<input id="pb_seed" type="number" min="0" max="9007199254740991" step="1" value="123456789"></label>
+        <label>Attention<select id="pb_attention"><option value="sage" selected>Sage</option><option value="auto">Auto</option><option value="native">Native</option></select></label>
+        <label><input id="pb_cache_enabled" type="checkbox"> Enable FirstBlockCache</label>
+        <label>Cache threshold<input id="pb_cache_threshold" type="number" min="0" max="1" step="0.01" value="0.18"></label>
+      </div>
+    </details>
     <details>
       <summary>Workflow LoRAs</summary>
       <div class="fields">
@@ -610,7 +637,7 @@
       <button id="pb_run_button" class="pbPrimary" type="button" onclick="runPromptBook()">Send to MiniMax H3</button>
       <span id="promptbook_status" class="pbNote">Pick a subject and a scene.</span>
     </div>
-    <p class="pbNote" id="pb_h3_settings_summary">Open the main H3 tab to review generation settings.</p>
+    <p class="pbNote" id="pb_h3_settings_summary">Prompt Book uses its own Ref2V settings with separate Turbo disabled.</p>
   </div>
   <div class="card outputPanel" id="pb_output">
     <h3>Output Preview</h3>
@@ -632,7 +659,7 @@
   <pre id="log"></pre>
 </section>
 <script src="/static/app.js?v=15.97"></script>
-<script src="/static/prompt_book.js?v=16.02"></script>
+<script src="/static/prompt_book.js?v=16.03"></script>
 <script src="/static/dashboard.js?v=15.89"></script>
 <script src="/static/h3_job.js?v=15.89"></script>
 <script src="/static/h3_variants.js?v=15.88"></script>

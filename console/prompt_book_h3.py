@@ -25,9 +25,9 @@ WORKFLOW_ROOT = Path(os.environ.get("PROMPT_BOOK_WORKFLOW_DIR", r"Z:\Grok\workfl
 
 BETA5_MODEL = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
 
-# Prompt Book supplies content, not a second sampling configuration. Keep this
-# allowlist in step with the normal H3 submission controls; never copy its
-# stale photo/video/prompt fields into the selected book request.
+# Legacy API clients may still supply main-H3 generation settings. The browser
+# now sends Prompt Book's own controls, and book references always replace stale
+# main-H3 photo/video/prompt fields.
 H3_GENERATION_FIELDS = {
     "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
     "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
@@ -131,9 +131,9 @@ def parse_steps(value: Any, default: int) -> int:
     try:
         number = float(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError("Steps must be a whole number from 2 to 30") from exc
-    if isinstance(raw, bool) or not number.is_integer() or not 2 <= number <= 30:
-        raise ValueError("Steps must be a whole number from 2 to 30")
+        raise ValueError("Steps must be a positive whole number up to 1000") from exc
+    if isinstance(raw, bool) or not number.is_integer() or not 1 <= number <= 1000:
+        raise ValueError("Steps must be a positive whole number up to 1000")
     return int(number)
 
 
@@ -455,7 +455,8 @@ def build_prompt_book_h3_request(
     steps = parse_steps(data.get("steps"), int(preset["steps"]))
     sampler = parse_sampling(data.get("sampler"), H3_SAMPLERS, "euler", "sampler")
     scheduler = parse_sampling(data.get("scheduler"), H3_SCHEDULERS, "simple", "scheduler")
-    larry = sampler == "h3_turbo"
+    if sampler == "h3_turbo":
+        sampler = "euler"
     latent = flag(data, "latent_upscale", bool(preset["latent_upscale"])) if "latent_upscale" in data else bool(preset["latent_upscale"])
     rtx = flag(data, "rtx_upscale", False)
     cache_enabled = flag(data, "cache_enabled", True)
@@ -463,16 +464,13 @@ def build_prompt_book_h3_request(
     megapixels = parse_number(data.get("megapixels"), float(preset["megapixels"]), 0.2, 2.0, "Low res MP")
     final_megapixels = parse_number(data.get("final_megapixels"), float(preset["final_megapixels"]), 0.2, 2.0, "Latent upscale MP")
     cache_threshold = parse_number(data.get("cache_threshold"), float(preset["cache_threshold"]), 0.0, 1.0, "Cache threshold")
+    split = int(parse_number(data.get("pass1_split"), max(1, steps - 1), 1, 1000, "First-pass split", whole=True))
+    second_sigma = int(parse_number(data.get("second_pass_sigma"), 2, 1, 5, "Second-pass sigmas", whole=True))
     if latent:
-        split = int(parse_number(data.get("pass1_split"), max(1, steps - 1), 1, 1000, "First-pass split", whole=True))
         if split > steps:
             raise ValueError("First-pass split cannot exceed the step count")
-        second_sigma = int(parse_number(data.get("second_pass_sigma"), 2, 1, 5, "Second-pass sigmas", whole=True))
         if split == steps and second_sigma == 4:
             raise ValueError("Remaining sigmas require a first-pass split below the step count")
-    else:
-        split = max(1, steps - 1)
-        second_sigma = 2
     if attention in {"sol-attn", "sla", "vsa"} and cache_enabled:
         raise ValueError("Turn off FirstBlockCache when using Sol, SLA, or VSA")
     if attention in {"sla", "vsa"} and not flag(data, "sparse_trained_weights", False):
@@ -554,8 +552,8 @@ def build_prompt_book_h3_request(
         "use_multi_image": False,
         "latent_upscale": latent,
         "rtx_upscale": rtx,
-        "turbo_enabled": larry,
-        "use_larry": larry,
+        "turbo_enabled": False,
+        "use_larry": False,
         "attention": attention,
         "sampler": sampler,
         "scheduler": scheduler,
@@ -572,7 +570,7 @@ def build_prompt_book_h3_request(
         "sparse_start_percent": parse_number(data.get("sparse_start_percent"), 0.2, 0, 1, "Sparse start"),
         "sparse_end_percent": parse_number(data.get("sparse_end_percent"), 1, 0, 1, "Sparse end"),
         "sparse_trained_weights": flag(data, "sparse_trained_weights", False),
-        "ref2va_model": BETA5_MODEL,
+        "ref2va_model": str(data.get("ref2va_model") or BETA5_MODEL).strip(),
         "duration": duration,
         "aspect_ratio": aspect or nearest_aspect(scene.get("width"), scene.get("height")),
         "filename_prefix": "H3",
@@ -590,11 +588,15 @@ def build_prompt_book_h3_request(
         "advanced_json": "{}",
     })
     inherited = data.get("h3_generation")
+    explicit_generation = {key: request[key] for key in (
+        "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
+        "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
+        "cache_enabled", "cache_threshold", "attention", "seed_random",
+        "diagnostic_frames", "ref2va_model",
+    ) if key in data}
     if inherited is not None:
         if not isinstance(inherited, dict):
             raise ValueError("H3 generation settings must be an object")
-        if inherited.get("task") != "r2v" or inherited.get("workflow_variant") != "ref2v_20260920":
-            raise ValueError("Set the main H3 tab to Ref2V before sending a Prompt Book scene")
         request.update({key: inherited[key] for key in H3_GENERATION_FIELDS if key in inherited})
         main_loras = inherited.get("loras") or []
         extra_loras = data.get("loras") or []
@@ -610,11 +612,38 @@ def build_prompt_book_h3_request(
                      lora_key(item) != lora_key(extra)]
             loras.append(extra)
         request["loras"] = loras
-        # The selected book cards and baked prompt are the only input changes.
-        # Scene trim/duration and explicit aspect remain Prompt Book controls.
         request["seed_random"] = inherited.get("seed_random", False)
+    request.update(explicit_generation)
+    # Prompt Book never sends a separate Turbo LoRA or its dedicated sampler,
+    # even if an older caller passed enabled main-H3 settings.
+    request["turbo_enabled"] = False
+    request["use_larry"] = False
+    request["turbo_family"] = "none"
+    request["sampling_preset"] = "custom"
+    request["pdd_enabled"] = False
+    request["advanced_json"] = "{}"
+    request.pop("turbo_lora", None)
+    request.pop("turbo_strength", None)
+    request["sampler"] = parse_sampling(request.get("sampler"), H3_SAMPLERS, "euler", "sampler")
+    if request["sampler"] == "h3_turbo":
+        request["sampler"] = "euler"
+    request["scheduler"] = parse_sampling(request.get("scheduler"), H3_SCHEDULERS, "simple", "scheduler")
+    request["steps"] = parse_steps(request.get("steps"), 8)
+    request["latent_upscale"] = flag(request, "latent_upscale", False)
+    request["rtx_upscale"] = flag(request, "rtx_upscale", False)
+    request["pass1_split"] = int(parse_number(request.get("pass1_split"), 6, 1, 1000, "First-pass split", whole=True))
+    request["second_pass_sigma"] = int(parse_number(request.get("second_pass_sigma"), 1, 1, 5, "Second-pass sigmas", whole=True))
+    if request["latent_upscale"] and request["pass1_split"] > request["steps"]:
+        raise ValueError("First-pass split cannot exceed the step count")
+    if request["latent_upscale"] and request["pass1_split"] == request["steps"] and request["second_pass_sigma"] == 4:
+        raise ValueError("Remaining sigmas require a first-pass split below the step count")
+    request["attention"] = parse_sampling(request.get("attention"), ATTENTION_MODES, "sage", "attention")
+    request["cache_enabled"] = flag(request, "cache_enabled", False)
+    if request["attention"] in {"sol-attn", "sla", "vsa"} and request["cache_enabled"]:
+        raise ValueError("Turn off FirstBlockCache when using Sol, SLA, or VSA")
+    request["seed_random"] = flag(request, "seed_random", True)
     if not request["seed_random"]:
-        request["seed"] = inherited.get("seed", 0) if inherited is not None else data.get("seed", 0)
+        request["seed"] = data.get("seed", inherited.get("seed", 0) if inherited is not None else 0)
     if isinstance(data.get("settings"), dict):
         request["settings"] = data["settings"]
     endpoint = str(data.get("h3_endpoint_id") or "").strip()
@@ -622,7 +651,7 @@ def build_prompt_book_h3_request(
         request["h3_endpoint_id"] = endpoint
     meta = {
         "workflow_id": "main_h3" if inherited is not None else str(data.get("workflow_id") or "ours"),
-        "workflow_label": "Main H3 Ref2V settings" if inherited is not None else preset["label"],
+        "workflow_label": "Prompt Book Ref2V (legacy H3 settings)" if inherited is not None else "Prompt Book Ref2V settings",
         "model": request.get("ref2va_model") or BETA5_MODEL,
         "subject": subject.get("label") or subject_id,
         "scene": scene.get("label") or video_id,
