@@ -862,6 +862,53 @@ class SecurityAndH3Tests(unittest.TestCase):
         mirror.assert_not_called()
         self.assertEqual(status["_uploaded_s3"], ["s3://h3-bucket/outputs/h3_unique.mp4"])
 
+    def test_expired_h3_status_recovers_only_verified_durable_outputs(self):
+        settings = media_console.defaults()
+        settings.update(runpod_api_key="key", h3_endpoint_id="h3-endpoint")
+        media_console.SETTINGS_PATH.write_text(json.dumps(settings), encoding="utf-8")
+        diagnostic = {"job_id": "job-1", "stage": "completed", "files": [{"filename": "H3_00001__safe.mp4", "size": 5}]}
+        s3 = mock.Mock(bucket="h3-bucket", root="/runpod-volume")
+        s3.call.return_value = {"ContentLength": 5}
+        response = media_console.requests.Response()
+        response.status_code = 404
+
+        def expired(*_args):
+            try:
+                raise media_console.requests.HTTPError("404", response=response)
+            except media_console.requests.HTTPError as exc:
+                raise media_console.HTTPException(502, "RunPod status check failed: 404") from exc
+
+        with (
+            mock.patch.object(media_console, "status", side_effect=expired),
+            mock.patch.object(media_console, "read_job_diagnostics", return_value=diagnostic),
+            mock.patch.object(media_console, "require_h3_s3", return_value=s3),
+            mock.patch.object(media_console, "save_outputs", return_value=["saved.mp4"]) as save,
+        ):
+            result = self.client.get("/api/job/h3-endpoint/job-1")
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()["status"]["status"], "COMPLETED")
+        self.assertTrue(result.json()["status"]["_recovered_from_diagnostics"])
+        self.assertEqual(save.call_args.args[1]["output"]["files"][0]["data"], "/runpod-volume/outputs/H3_00001__safe.mp4")
+        s3.call.assert_called_once_with("head_object", Bucket="h3-bucket", Key="outputs/H3_00001__safe.mp4")
+
+    def test_h3_status_recovery_rejects_unverified_or_unsafe_files(self):
+        settings = media_console.defaults()
+        settings["h3_endpoint_id"] = "h3-endpoint"
+        s3 = mock.Mock(bucket="h3-bucket", root="/runpod-volume")
+        with (
+            mock.patch.object(media_console, "read_job_diagnostics") as diagnostic,
+            mock.patch.object(media_console, "require_h3_s3", return_value=s3),
+        ):
+            diagnostic.return_value = {"job_id": "job-1", "stage": "sampling", "files": [{"filename": "safe.mp4", "size": 5}]}
+            self.assertIsNone(media_console.recover_completed_h3_status("h3-endpoint", "job-1", settings))
+            diagnostic.return_value["stage"] = "completed"
+            diagnostic.return_value["files"][0]["filename"] = "../unsafe.mp4"
+            self.assertIsNone(media_console.recover_completed_h3_status("h3-endpoint", "job-1", settings))
+            s3.call.assert_not_called()
+            diagnostic.return_value["files"][0]["filename"] = "safe.mp4"
+            s3.call.return_value = {"ContentLength": 4}
+            self.assertIsNone(media_console.recover_completed_h3_status("h3-endpoint", "job-1", settings))
+
     def test_h3_output_fallback_searches_nested_job_folder_and_paginates(self):
         class FakeS3:
             bucket = "h3-bucket"

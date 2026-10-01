@@ -5185,6 +5185,37 @@ def read_job_diagnostics(endpoint_id, job_id, s):
     return result
 
 
+def recover_completed_h3_status(endpoint_id: str, job_id: str, s: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Recover a completed H3 job after RunPod has expired its status record.
+
+    The worker writes durable diagnostics only after delivering every file. Verify
+    each exact flat output against the volume before exposing it as completed.
+    """
+    diagnostic = read_job_diagnostics(endpoint_id, job_id, s)
+    files = diagnostic.get("files")
+    if diagnostic.get("job_id") != job_id or diagnostic.get("stage") != "completed" or not isinstance(files, list) or not 0 < len(files) <= 32:
+        return None
+    try:
+        helper = require_h3_s3(s)
+        recovered = []
+        for item in files:
+            if not isinstance(item, dict):
+                return None
+            name, size = item.get("filename"), item.get("size")
+            if not isinstance(name, str) or not name or Path(name).name != name or "/" in name or "\\" in name or Path(name).suffix.lower() not in MEDIA_EXT:
+                return None
+            if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+                return None
+            key = f"outputs/{name}"
+            head = helper.call("head_object", Bucket=helper.bucket, Key=key)
+            if head.get("ContentLength") != size:
+                return None
+            recovered.append({"filename": name, "size": size, "type": "volume_path", "data": f"{helper.root}/{key}"})
+    except Exception:
+        return None
+    return {"id": job_id, "status": "COMPLETED", "output": {"files": recovered, "metadata": diagnostic.get("metadata"), "prompt_id": diagnostic.get("prompt_id")}, "_recovered_from_diagnostics": True}
+
+
 @app.get('/api/h3/sampling')
 def h3_sampling_options():
     return H3_SAMPLING
@@ -5322,7 +5353,16 @@ def job_status(endpoint_id: str, job_id: str):
     event_target = "h3" if endpoint_id == s.get("h3_endpoint_id") else ""
     event = job_event_for(job_id, event_target) if event_target else {}
     target_fps = ((event.get("debug") or {}).get("fps") if isinstance(event.get("debug"), dict) else None)
-    st=status(endpoint_id,key,job_id)
+    try:
+        st=status(endpoint_id,key,job_id)
+    except HTTPException as exc:
+        cause = exc.__cause__
+        response = getattr(cause, "response", None)
+        if endpoint_id != s.get("h3_endpoint_id") or getattr(response, "status_code", None) != 404:
+            raise
+        st = recover_completed_h3_status(endpoint_id, job_id, s)
+        if st is None:
+            raise
     output_error = st.get("output", {}).get("error") if isinstance(st.get("output"), dict) else None
     if st.get("status") == "COMPLETED" and output_error:
         st["status"] = "FAILED"
