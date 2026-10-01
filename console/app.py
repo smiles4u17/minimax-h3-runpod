@@ -5364,6 +5364,9 @@ def job_status(endpoint_id: str, job_id: str):
         st = recover_completed_h3_status(endpoint_id, job_id, s)
         if st is None:
             raise
+    if (endpoint_id == s.get("h3_endpoint_id") and st.get("status") == "IN_PROGRESS"
+            and isinstance(st.get("output"), dict) and st["output"].get("stage") == "completed"):
+        st = recover_completed_h3_status(endpoint_id, job_id, s) or st
     output_error = st.get("output", {}).get("error") if isinstance(st.get("output"), dict) else None
     if st.get("status") == "COMPLETED" and output_error:
         st["status"] = "FAILED"

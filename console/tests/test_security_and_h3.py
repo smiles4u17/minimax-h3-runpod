@@ -892,6 +892,27 @@ class SecurityAndH3Tests(unittest.TestCase):
         self.assertEqual(save.call_args.args[1]["output"]["files"][0]["data"], "/runpod-volume/outputs/H3_00001__safe.mp4")
         s3.call.assert_called_once_with("head_object", Bucket="h3-bucket", Key="outputs/H3_00001__safe.mp4")
 
+    def test_stale_in_progress_h3_status_recovers_verified_completed_output(self):
+        settings = media_console.defaults()
+        settings.update(runpod_api_key="key", h3_endpoint_id="h3-endpoint")
+        media_console.SETTINGS_PATH.write_text(json.dumps(settings), encoding="utf-8")
+        diagnostic = {"job_id": "job-1", "stage": "completed", "files": [{"filename": "H3_00001__safe.mp4", "size": 5}]}
+        s3 = mock.Mock(bucket="h3-bucket", root="/runpod-volume")
+        s3.call.return_value = {"ContentLength": 5}
+        stale = {"id": "job-1", "status": "IN_PROGRESS", "output": {"stage": "completed"}}
+        with (
+            mock.patch.object(media_console, "status", return_value=stale),
+            mock.patch.object(media_console, "read_job_diagnostics", return_value=diagnostic),
+            mock.patch.object(media_console, "require_h3_s3", return_value=s3),
+            mock.patch.object(media_console, "save_outputs", return_value=["saved.mp4"]) as save,
+        ):
+            result = self.client.get("/api/job/h3-endpoint/job-1")
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()["status"]["status"], "COMPLETED")
+        self.assertTrue(result.json()["status"]["_recovered_from_diagnostics"])
+        self.assertEqual(save.call_args.args[1]["output"]["files"][0]["data"], "/runpod-volume/outputs/H3_00001__safe.mp4")
+        s3.call.assert_called_once_with("head_object", Bucket="h3-bucket", Key="outputs/H3_00001__safe.mp4")
+
     def test_h3_status_recovery_rejects_unverified_or_unsafe_files(self):
         settings = media_console.defaults()
         settings["h3_endpoint_id"] = "h3-endpoint"
