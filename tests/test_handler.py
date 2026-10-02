@@ -338,6 +338,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(metadata["gpu_vram_gb"], 32.0)
         self.assertEqual(metadata["low_vram_profile"], "minimum_vram")
 
+    def test_int8_32gb_worker_preserves_prefetch_and_reports_effective_model(self) -> None:
+        full = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors'
+        quantized = '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors'
+        with (mock.patch.object(handler, '_gpu_total_vram_gb', return_value=32.0),
+              mock.patch.object(handler, '_model_exists', return_value=True),
+              mock.patch.dict(handler.os.environ, {'H3_PREFER_BETA5_INT8': 'true'}, clear=True)):
+            workflow, metadata = handler.build_preset({'task': 'r2v', 'prompt': 'test',
+                'references': [asset('one.png')], 'model': full})
+            self.assertEqual(workflow['127']['inputs']['unet_name'], quantized)
+            self.assertEqual(workflow['9140']['inputs']['memory_profile'], 'balanced')
+            self.assertEqual(workflow['9140']['inputs']['block_prefetch'], 'keep')
+            self.assertEqual(metadata['requested_model'], full)
+            self.assertEqual(metadata['model_substitution'], 'beta5_int8_low_vram')
+            self.assertEqual(metadata['low_vram_prefetch'], 'keep')
+            with mock.patch.dict(handler.os.environ, {'H3_LOW_VRAM_PROFILE': 'low_vram', 'H3_LOW_VRAM_PREFETCH': 'disable'}):
+                workflow, metadata = handler.build_preset({'task': 'r2v', 'prompt': 'test',
+                    'references': [asset('one.png')], 'model': quantized})
+                self.assertEqual(workflow['9140']['inputs']['memory_profile'], 'low_vram')
+                self.assertEqual(metadata['low_vram_prefetch'], 'disable')
+
     def test_96gb_worker_keeps_normal_graph(self) -> None:
         workflow, metadata = handler.build_preset({
             "task": "r2v",

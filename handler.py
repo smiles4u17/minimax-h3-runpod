@@ -359,17 +359,22 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     low_vram = _low_vram_worker(total_vram_gb)
     model: list[Any] = ["127", 0]
     low_vram_profile: str | None = None
+    low_vram_prefetch: str | None = None
     if low_vram:
-        low_vram_profile = os.environ.get("H3_LOW_VRAM_PROFILE", "minimum_vram")
+        int8_beta5 = workflow["127"]["inputs"]["unet_name"] == '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors'
+        low_vram_profile = os.environ.get("H3_LOW_VRAM_PROFILE", "balanced" if int8_beta5 else "minimum_vram")
         if low_vram_profile not in {"balanced", "low_vram", "minimum_vram", "maximum_speed"}:
             raise RuntimeError("H3_LOW_VRAM_PROFILE must be balanced, low_vram, minimum_vram, or maximum_speed")
+        low_vram_prefetch = os.environ.get("H3_LOW_VRAM_PREFETCH", "keep" if int8_beta5 else "disable")
+        if low_vram_prefetch not in {"keep", "disable"}:
+            raise RuntimeError("H3_LOW_VRAM_PREFETCH must be keep or disable")
         workflow["9140"] = {
             "inputs": {
                 "model": model,
                 "enabled": True,
                 "memory_profile": low_vram_profile,
                 "custom_chunk_tokens": 8192,
-                "block_prefetch": "disable",
+                "block_prefetch": low_vram_prefetch,
                 "verbose": True,
             },
             "class_type": "MiniMaxH3LowVRAM",
@@ -489,6 +494,7 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "gpu_vram_gb": round(total_vram_gb, 2) if total_vram_gb is not None else None,
         "compute_capability": capability,
         "low_vram_profile": low_vram_profile,
+        "low_vram_prefetch": low_vram_prefetch,
         "attention": attention,
         "text_encoder": workflow["128"]["inputs"]["clip_name"],
         "model": workflow["127"]["inputs"]["unet_name"],

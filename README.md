@@ -117,9 +117,12 @@ preserved and their effective names and weights are included in result metadata.
 Workers detect their VRAM at startup. GPUs with 48 GB or less automatically use
 the `minimum_vram` H3 chunking profile, disable H3 block prefetch and ComfyUI's
 execution cache, reserve 1 GB of VRAM, and aggressively offload unused models.
+Verified beta5 INT8 instead defaults to `balanced` chunks and normal block
+prefetch; full weights retain the emergency memory settings. Result metadata
+records both the chunk profile and prefetch setting.
 Larger GPUs keep the normal graph and launch settings. These defaults can be
 overridden with `H3_LOW_VRAM_MODE`, `H3_LOW_VRAM_PROFILE`,
-`H3_LOW_VRAM_THRESHOLD_GB`, `H3_LOW_VRAM_RESERVE_GB`, and
+`H3_LOW_VRAM_PREFETCH` (`keep` or `disable`), `H3_LOW_VRAM_THRESHOLD_GB`, `H3_LOW_VRAM_RESERVE_GB`, and
 `H3_LOW_VRAM_HEADROOM_GB`.
 
 MP4 results often exceed RunPod's response-size limit. The worker chooses output delivery in this order:
