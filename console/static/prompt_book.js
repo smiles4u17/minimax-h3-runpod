@@ -444,12 +444,21 @@ async function runPromptBook() {
   try {
     if (!PB.subject || !PB.video) return alert('Pick a subject and a scene.');
     if (!val('pb_prompt').trim()) return alert('The prompt is empty.');
+    // Read the visible trim endpoints at send time, even if the last timeline
+    // update has not fired yet. A stale output duration must not widen a trim.
+    pbSyncDurationFromTrim();
+    const trimStart = Number(val('pb_video_start') || 0);
+    const trimEndRaw = val('pb_video_end').trim();
+    const trimEnd = trimEndRaw ? Number(trimEndRaw) : null;
+    if (!Number.isFinite(trimStart) || trimStart < 0 ||
+        (trimEnd !== null && (!Number.isFinite(trimEnd) || trimEnd <= trimStart)))
+      throw new Error('Trim end must be after a valid trim start.');
     const generation = pbGenerationSettings();
     if (button) {
       button.disabled = true;
       button.textContent = 'Submitting...';
     }
-    if (status) status.textContent = 'Uploading the still and clip, then sending to MiniMax H3...';
+    if (status) status.textContent = 'Trimming the reference video and audio, uploading, then sending to MiniMax H3...';
     const payload = {
       settings: payloadSettings(),
       h3_endpoint_id: val('h3_endpoint_id'),

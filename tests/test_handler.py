@@ -449,6 +449,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["130"]["inputs"]["audio"], ["8501", 0])
         self.assertEqual(metadata["task"], "r2v")
 
+    def test_r2v_preserves_short_reference_cap_for_long_output(self):
+        for task, variant in [('r2v', 'legacy'), ('r2v_20260920', 'ref2v_20260920')]:
+            workflow, _ = handler.build_preset({
+                'task': task, 'workflow_variant': variant, 'prompt': 'Neutral test.',
+                'reference_videos': [asset('motion.mp4')], 'duration': 15,
+                'latent_upscale': False, 'rtx_upscale': False, 'turbo_enabled': False,
+                'reference_video_settings': [{'start_frame': 48, 'frame_load_cap': 48}]})
+            self.assertEqual(workflow['8200']['inputs']['frame_load_cap'], 48)
+            self.assertEqual(workflow['8200']['inputs']['skip_first_frames'], 48)
+
+    def test_r2v_rejects_unbounded_or_invalid_reference_caps(self):
+        for cap in (0, -1, 2.5, True, 'nan', 3601):
+            with self.subTest(cap=cap), self.assertRaises(handler.InputError):
+                handler.build_preset({'task': 'r2v', 'prompt': 'Neutral test.',
+                    'reference_videos': [asset('motion.mp4')],
+                    'reference_video_settings': [{'frame_load_cap': cap}]})
+
     def test_r2v_accepts_audio_only_reference(self) -> None:
         workflow, _ = handler.build_preset({
             "task": "r2v",

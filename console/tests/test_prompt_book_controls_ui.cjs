@@ -37,6 +37,9 @@ const context = {
   document: {readyState: 'loading', addEventListener() {}},
   $: id => elements[id] || (id in checked ? {checked: checked[id]} : undefined),
   val: id => values[id] ?? elements[id]?.value ?? '',
+  set: (id, value) => { values[id] = String(value); },
+  payloadSettings: () => ({}),
+  alert: message => { throw new Error(message); },
   api: async route => route === '/api/h3/sampling'
     ? catalog
     : {categories: {ref2va: ['selected-ref2v.safetensors'], diffusion_models: ['wrong-fl2v.safetensors']}},
@@ -64,5 +67,18 @@ vm.runInContext(source, context);
   assert.equal(generation.second_pass_sigma, 5);
   assert.equal(generation.seed, 42);
   assert.equal(elements.pb_h3_settings_summary.textContent.includes('separate Turbo off'), true);
+  Object.assign(values, {pb_duration: '15', pb_video_start: '145', pb_video_end: '147',
+    pb_start: '145', pb_prompt: 'A neutral reference test.'});
+  vm.runInContext("PB.subject = 'neutral'; PB.video = 'neutral'; PB.catalog = {videos: [{id: 'neutral', duration_sec: 200}]};", context);
+  let sent;
+  context.submitRun = async (route, payload) => { sent = payload; };
+  await vm.runInContext('runPromptBook()', context);
+  assert.equal(sent.duration, 2, 'Submission must read the visible trim rather than stale duration');
+  assert.equal(sent.trim_start, '145');
+  assert.equal(sent.trim_end, '147');
+  values.pb_video_end = '145';
+  sent = null;
+  await assert.rejects(vm.runInContext('runPromptBook()', context), /Trim end must be after/);
+  assert.equal(sent, null);
   process.stdout.write(`Prompt Book UI: ${elements.pb_sampler.options.length} samplers, ${elements.pb_scheduler.options.length} schedulers; independent controls OK\n`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

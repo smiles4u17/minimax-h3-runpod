@@ -12,11 +12,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from output_sync import OutputSync
-from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults
+from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults, reference_frame_cap
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.03-prompt-book-controls"
+APP_VERSION = "web-v16.04-h3-reference-trim"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -1127,9 +1127,56 @@ def h3_reference_video_settings(value: Any, count: int, duration: float) -> list
             "force_rate": force_rate,
             "skip_first_frames": start_frame,
             "select_every_nth": select_every_nth,
-            "frame_load_cap": frame_cap,
+            "frame_load_cap": reference_frame_cap(item, frame_cap),
         })
     return settings
+
+
+def h3_prepare_reference_clip(path: str, options: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """Physically bound Prompt Book video AND audio before uploading either."""
+    fps = float(options['force_rate'])
+    if fps <= 0 or options['select_every_nth'] != 1:
+        raise ValueError('Prompt Book reference trimming requires a fixed FPS and frame stride 1')
+    start = options['skip_first_frames'] / fps
+    length = options['frame_load_cap'] / fps
+    debug = {'start_seconds': start, 'duration_seconds': length,
+             'frame_cap': options['frame_load_cap'], 'fps': fps, 'pretrimmed': False}
+    if H3_PREVIEW.get():
+        return path, dict(options), debug
+    if is_url(path) or is_s3_uri(path):
+        raise ValueError('Prompt Book reference must be a local file before trimming')
+    source = Path(path)
+    if not source.is_file():
+        raise ValueError(f'Reference video not found: {source.name}')
+    stat = source.stat()
+    identity = json.dumps([str(source.resolve()), stat.st_size, stat.st_mtime_ns, options], sort_keys=True)
+    target = TEMP_DIR / ('h3_ref_' + hashlib.sha256(identity.encode()).hexdigest()[:24] + '.mp4')
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        partial = target.with_name(target.stem + '_' + uuid.uuid4().hex + '.part.mp4')
+        command = [ffmpeg_bin(), '-hide_banner', '-loglevel', 'error', '-y',
+                   '-ss', str(start), '-i', str(source), '-t', str(length),
+                   '-map', '0:v:0', '-map', '0:a:0?', '-vf', f'fps={fps:g}',
+                   '-frames:v', str(options['frame_load_cap']),
+                   '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
+                   '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k',
+                   '-af', f'atrim=duration={length:g},asetpts=PTS-STARTPTS', str(partial)]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+            if result.returncode or not partial.is_file() or not partial.stat().st_size:
+                raise ValueError('Reference trim failed: ' + strip_process_noise(result.stderr))
+            probe = video_probe(partial)
+            actual = float(probe.get('duration_seconds') or 0)
+            if not probe.get('width') or not 0 < actual <= length + 1 / fps + 0.05:
+                raise ValueError('Reference trim did not produce a bounded, readable clip')
+            os.replace(partial, target)
+        finally:
+            if partial.exists():
+                partial.unlink()
+    debug['pretrimmed'] = True
+    debug['uploaded_duration_seconds'] = float(video_probe(target).get('duration_seconds') or 0)
+    normalized = dict(options, skip_first_frames=0)
+    return str(target), normalized, debug
 
 def require_h3_s3(s: Optional[dict[str, Any]] = None) -> S3Helper:
     helper = configured_s3_helper(h3_storage_settings(s or settings()))
@@ -4957,6 +5004,7 @@ async def run_h3(data: dict[str, Any]):
         payload['task'] = task + '_20260920'
     effective_delivery = delivery
     estimated_inline_bytes = 0
+    reference_trims = []
     try:
         if task == "fl2v":
             first_frame = await run_in_threadpool(h3_localize_url, str(data.get("first_frame_path") or "").strip())
@@ -4978,6 +5026,11 @@ async def run_h3(data: dict[str, Any]):
             references = [await run_in_threadpool(h3_localize_url, p) for p in references]
             videos = [await run_in_threadpool(h3_localize_url, p) for p in videos]
             audios = [await run_in_threadpool(h3_localize_url, p) for p in audios]
+            video_options = h3_reference_video_settings(data.get("reference_video_settings"), len(videos), duration_value)
+            if data.get('source_workflow') == 'prompt_book':
+                for i, path in enumerate(videos):
+                    videos[i], video_options[i], trim_debug = await run_in_threadpool(h3_prepare_reference_clip, path, video_options[i])
+                    reference_trims.append(trim_debug)
             effective_delivery, estimated_inline_bytes = h3_effective_delivery(delivery, references + videos + audios + edit_paths)
             if edit_paths:
                 # Older workers must reject this request, never silently ignore the mask.
@@ -4993,7 +5046,7 @@ async def run_h3(data: dict[str, Any]):
             if not isinstance(video_audio, list):
                 raise ValueError("H3 R2VA video audio selections must be a list")
             payload["reference_video_audio"] = [as_bool(video_audio[i], True) if i < len(video_audio) else True for i in range(len(videos))]
-            payload["reference_video_settings"] = h3_reference_video_settings(data.get("reference_video_settings"), len(videos), duration_value)
+            payload["reference_video_settings"] = video_options
             payload["reference_audios"] = [h3_asset_payload(path, f"reference_audio_{i + 1}", effective_delivery, h3_s3) for i, path in enumerate(audios)]
             if audios:
                 payload["audio"] = payload["reference_audios"][0]
@@ -5100,6 +5153,8 @@ async def run_h3(data: dict[str, Any]):
         "last_frame_mode": asset_mode(payload.get("last_frame")),
         "reference_modes": [asset_mode(x) for x in payload.get("references", [])],
         "reference_video_modes": [asset_mode(x) for x in payload.get("reference_videos", [])],
+        "reference_video_settings": payload.get("reference_video_settings", []),
+        "reference_trims": reference_trims,
         "reference_audio_modes": [asset_mode(x) for x in payload.get("reference_audios", [])],
         "audio_mode": asset_mode(payload.get("audio")),
         "loras": len(loras),

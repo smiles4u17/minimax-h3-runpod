@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 import requests
 import runpod
+from h3_workflow_options import reference_frame_cap
 from telemetry import JobTelemetry, is_oom, runtime_inventory
 
 
@@ -617,13 +618,17 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
             raise InputError(f"reference video {index + 1} skip_first_frames cannot be negative")
         if not 1 <= select_every_nth <= 1000:
             raise InputError(f"reference video {index + 1} select_every_nth must be between 1 and 1000")
+        try:
+            frame_cap = reference_frame_cap(settings, _output_frame_count(payload))
+        except ValueError as exc:
+            raise InputError(str(exc)) from exc
         workflow[load_id] = {
             "inputs": {
                 "video": _materialize_asset(asset, f"reference_video_{index + 1}.mp4"),
                 "force_rate": force_rate,
                 "custom_width": 0,
                 "custom_height": 0,
-                "frame_load_cap": _output_frame_count(payload),
+                "frame_load_cap": frame_cap,
                 "skip_first_frames": skip_first_frames,
                 "select_every_nth": select_every_nth,
             },

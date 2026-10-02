@@ -335,6 +335,7 @@ class PromptBookH3Tests(unittest.TestCase):
             mock.patch.object(prompt_book_h3, "upload_prompt_book_workflows") as upload,
             mock.patch.object(media_console, "submit", side_effect=fake_submit),
             mock.patch.object(media_console, "h3_asset_payload", return_value={"volume_path": "/runpod-volume/input/mock"}),
+            mock.patch.object(media_console, "h3_prepare_reference_clip", side_effect=lambda path, opts: (path, opts, {})),
             mock.patch.object(media_console, "record_job_event"),
         ):
             response = self.client.post("/api/run/prompt-book", json={
@@ -359,6 +360,34 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertNotIn("volume_path", response.json()["prompt_book"])
         self.assertNotIn("secret", json.dumps(response.json()["prompt_book"]))
         upload.assert_not_called()
+
+    def test_reference_trim_is_independent_of_output_duration(self):
+        request, meta = prompt_book_h3.build_prompt_book_h3_request(
+            {'subject_id': 'ada', 'video_id': 'clip', 'duration': 15,
+             'trim_start': 2, 'trim_end': 4}, catalog=self.catalog(),
+            baked={'prompt': 'A neutral reference test.'})
+        self.assertEqual(request['duration'], 15)
+        self.assertEqual(request['reference_video_settings'][0]['frame_load_cap'], 48)
+        self.assertEqual(request['reference_video_settings'][0]['start_frame'], 48)
+        self.assertEqual(meta['reference_duration'], 2)
+        self.assertEqual(meta['trim_end'], 4)
+
+    def test_invalid_trim_never_falls_back_to_full_scene(self):
+        for values in ({'trim_start': 2, 'trim_end': 2}, {'trim_start': 4, 'trim_end': 2},
+                       {'trim_start': 999}, {'trim_start': 'nan'}, {'trim_end': 'inf'}):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                prompt_book_h3.build_prompt_book_h3_request(
+                    {'subject_id': 'ada', 'video_id': 'clip', **values},
+                    catalog=self.catalog(), baked={'prompt': 'Neutral test.'})
+
+    def test_fractional_reference_trim_rounds_inward(self):
+        request, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {'subject_id': 'ada', 'video_id': 'clip', 'duration': 15,
+             'trim_start': 2.01, 'trim_end': 4.01}, catalog=self.catalog(),
+            baked={'prompt': 'Neutral test.'})
+        opts = request['reference_video_settings'][0]
+        self.assertGreaterEqual(opts['start_frame'] / 24, 2.01)
+        self.assertLessEqual((opts['start_frame'] + opts['frame_load_cap']) / 24, 4.01)
 
     def test_prompt_book_reuses_main_h3_worker_generation_payload(self):
         submitted = []
@@ -394,7 +423,7 @@ class PromptBookH3Tests(unittest.TestCase):
             "reference_video_paths": [r"C:\clips\clip.mp4"],
             "reference_video_audio": [False],
             "reference_video_settings": [{"force_rate": 24, "start_frame": 0,
-                                          "select_every_nth": 1, "frame_load_cap": 56}],
+                                          "select_every_nth": 1, "frame_load_cap": 48}],
             "reference_audio_paths": [], "use_reference_audio_as_output": False,
             "prompt": "Book prompt", "loras": [{"name": "main.safetensors", "strength": 0.6}],
         }
@@ -406,12 +435,13 @@ class PromptBookH3Tests(unittest.TestCase):
             mock.patch.object(media_console, "record_job_event"),
         ):
             normal = self.client.post("/api/run/h3", json=main)
-            book = self.client.post("/api/run/prompt-book", json={
-                "settings": settings, "subject_id": "ada", "video_id": "clip",
-                "h3_generation": main, "duration": 2,
-                "aspect_ratio": "9:16 (Portrait Widescreen)",
-                "loras": [{"name": "extra.safetensors", "strength": 0.8}],
-            })
+            with mock.patch.object(media_console, "h3_prepare_reference_clip", side_effect=lambda path, opts: (path, opts, {})):
+                book = self.client.post("/api/run/prompt-book", json={
+                    "settings": settings, "subject_id": "ada", "video_id": "clip",
+                    "h3_generation": main, "duration": 2,
+                    "aspect_ratio": "9:16 (Portrait Widescreen)",
+                    "loras": [{"name": "extra.safetensors", "strength": 0.8}],
+                })
         self.assertEqual(normal.status_code, 200, normal.text)
         self.assertEqual(book.status_code, 200, book.text)
         self.assertEqual(len(submitted), 2)
@@ -448,6 +478,7 @@ class PromptBookH3Tests(unittest.TestCase):
             mock.patch.object(prompt_book_h3, "book_json", side_effect=lambda path, timeout=60:
                               self.catalog() if path.startswith("/api/catalog") else {"prompt": "Book prompt"}),
             mock.patch.object(media_console, "h3_asset_payload", return_value={"volume_path": "/runpod-volume/input/mock"}) as asset,
+            mock.patch.object(media_console, "h3_prepare_reference_clip", side_effect=lambda path, opts: (path, opts, {})),
             mock.patch.object(media_console, "submit", return_value={"id": "book-job"}) as submit,
             mock.patch.object(media_console, "record_job_event"),
         ):

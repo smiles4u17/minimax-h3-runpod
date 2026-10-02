@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -336,12 +337,17 @@ def trim_window(data: dict[str, Any], scene_duration: Any) -> tuple[float, float
             end = float(end_raw)
         except (TypeError, ValueError) as exc:
             raise ValueError("Trim end must be a number of seconds") from exc
+    if not math.isfinite(start) or not math.isfinite(end):
+        raise ValueError("Trim times must be finite numbers")
     if start < 0:
         raise ValueError("Trim start cannot be negative")
     if total > 0:
-        start = min(start, total)
+        if start >= total:
+            raise ValueError("Trim start must be before the end of the scene")
         if end_raw not in (None, "", "full"):
-            end = min(max(end, start), total)
+            end = min(end, total)
+    if end_raw not in (None, "", "full") and end <= start:
+        raise ValueError("Trim end must be after trim start")
     if end > start:
         return start, end - start
     return start, total - start if total > start else total
@@ -519,9 +525,13 @@ def build_prompt_book_h3_request(
         raise ValueError("The selected scene has no video file")
     trim_start, trim_length = trim_window(data, scene.get("duration_sec"))
     duration, clamped = chosen_duration(data, trim_start, trim_length, scene.get("duration_sec"))
-    trim_frames = int(round(trim_start * 24))
-    raw_frames = max(5, round(duration * 24))
-    frame_cap = raw_frames + (5 - (raw_frames % 17)) % 17
+    trim_frames = math.ceil(trim_start * 24 - 1e-8)
+    reference_duration = min(duration, trim_length) if trim_length > 0 else duration
+    # Only output latents snap UP to 17k+5. A reference must stay inside the
+    # selected interval; the native reference node handles its own DOWN snap.
+    frame_cap = math.floor((trim_start + reference_duration) * 24 + 1e-8) - trim_frames
+    if frame_cap < 5:
+        raise ValueError("Reference trim needs at least five frames at 24 fps")
     prompt = str((baked or {}).get("prompt") or "").strip()
     if flag(data, "use_prompt_override", False):
         override = str(data.get("prompt") or "").strip()
@@ -657,6 +667,10 @@ def build_prompt_book_h3_request(
         "scene": scene.get("label") or video_id,
         "duration": duration,
         "duration_clamped": clamped,
+        "trim_start": trim_start,
+        "trim_end": trim_start + reference_duration,
+        "reference_duration": reference_duration,
+        "reference_frame_cap": frame_cap,
         "source_duration": scene.get("duration_sec") or 0,
         "aspect_ratio": request["aspect_ratio"],
         "photos": len(photos),

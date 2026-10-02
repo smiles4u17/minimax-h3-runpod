@@ -4,6 +4,17 @@ import re
 
 VARIANTS = {"legacy", "fflf_20260920", "ref2v_20260920"}
 
+def reference_frame_cap(settings, output_frames):
+    """Keep an explicit reference trim; never widen it to the output duration."""
+    raw = settings.get("frame_load_cap", output_frames)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Reference frame cap must be a positive whole number") from exc
+    if isinstance(raw, bool) or not math.isfinite(value) or not value.is_integer() or not 1 <= value <= 3600:
+        raise ValueError("Reference frame cap must be a whole number from 1 to 3600")
+    return min(int(value), output_frames)
+
 def workflow_options(data):
     variant = str(data.get("workflow_variant") or "legacy")
     if variant not in VARIANTS:
