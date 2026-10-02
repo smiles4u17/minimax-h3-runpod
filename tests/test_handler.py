@@ -32,6 +32,26 @@ def asset(name: str) -> dict[str, str]:
 
 
 class HistoryPollTests(unittest.TestCase):
+    def test_dead_process_fails_before_history_poll(self):
+        process = mock.Mock()
+        process.poll.return_value = -6
+        with mock.patch.object(handler, '_COMFY_PROCESS', process), mock.patch.object(handler.requests, 'get') as get:
+            with self.assertRaisesRegex(RuntimeError, 'exited with code -6'):
+                handler._wait_for_history('pid')
+            get.assert_not_called()
+
+    def test_fatal_telemetry_checked_after_http_timeout(self):
+        class ReadTimeout(Exception):
+            pass
+        telemetry = mock.Mock()
+        telemetry.check.side_effect = [None, RuntimeError('ComfyUI fatal CUDA/process error')]
+        with mock.patch.object(handler, '_check_comfy_process'), mock.patch.object(handler, 'requests') as req:
+            req.get.side_effect = ReadTimeout()
+            req.RequestException = ReadTimeout
+            req.Timeout = ReadTimeout
+            with self.assertRaisesRegex(RuntimeError, 'fatal CUDA'):
+                handler._wait_for_history('pid', telemetry)
+
     def test_history_poll_retries_when_comfy_read_times_out(self):
         class ReadTimeout(Exception):
             pass
@@ -325,6 +345,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("--vram-headroom", args)
         self.assertIn("--disable-smart-memory", args)
         self.assertIn("--cache-none", args)
+        self.assertIn("--disable-cuda-malloc", args)
+
+    def test_allocator_override_remains_explicit(self):
+        with mock.patch.object(handler, '_low_vram_worker', return_value=False), mock.patch.dict(handler.os.environ, {'COMFY_ARGS': '--cuda-malloc'}):
+            self.assertEqual(handler._comfy_launch_args(), ['--cuda-malloc'])
 
     def test_metadata_records_exact_workflow_loras(self) -> None:
         lora_root = handler.COMFY_ROOT / "models" / "loras" / "H3"

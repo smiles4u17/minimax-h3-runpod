@@ -231,6 +231,8 @@ python examples/client.py examples/fl2v_request.json
 
 `attention: auto` selects Sage only when CUDA capability and the compiled module are available. Setting `native` rewires FBCache directly after the Turbo LoRA, so the same image can safely run on a card where Sage is undesirable.
 
+ComfyUI starts with `--disable-cuda-malloc` by default, including replacement processes. This uses PyTorch's native allocator after an observed cudaMallocAsync `free_impl` abort during H3 First Block Cache cleanup. Sage and First Block Cache remain available. An explicit allocator flag in `COMFY_ARGS` overrides this default. Fatal CUDA/process logs and exited ComfyUI processes fail the request promptly and request a worker refresh; ordinary busy HTTP timeouts remain retryable.
+
 ## Raw workflow mode
 
 You can also send any ComfyUI API-format workflow directly:

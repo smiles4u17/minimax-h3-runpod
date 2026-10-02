@@ -35,6 +35,12 @@ declare -a USER_COMFY_ARGS=()
 if [[ -n "${COMFY_ARGS:-}" ]]; then
   read -r -a USER_COMFY_ARGS <<< "$COMFY_ARGS"
 fi
+declare -a ALLOCATOR_ARGS=(--disable-cuda-malloc)
+for arg in "${USER_COMFY_ARGS[@]}"; do
+  if [[ "$arg" == "--cuda-malloc" || "$arg" == "--disable-cuda-malloc" ]]; then
+    ALLOCATOR_ARGS=()
+  fi
+done
 
 mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" /runpod-volume/models/loras
 
@@ -43,8 +49,10 @@ python3.12 "$COMFY_ROOT/main.py" \
   --port "$COMFY_PORT" \
   --extra-model-paths-config /opt/minimax-h3/extra_model_paths.yaml \
   "${LOW_VRAM_ARGS[@]}" \
+  "${ALLOCATOR_ARGS[@]}" \
   "${USER_COMFY_ARGS[@]}" > >(tee "$H3_COMFY_LOG") 2>&1 &
 COMFY_PID=$!
+export H3_COMFY_PID="$COMFY_PID"
 
 shutdown() {
   kill "$COMFY_PID" 2>/dev/null || true

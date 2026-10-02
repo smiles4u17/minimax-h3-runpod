@@ -65,5 +65,14 @@ class TelemetryTests(unittest.TestCase):
         self.assertTrue(is_oom('torch.OutOfMemoryError'))
         self.assertFalse(is_oom('process exited -6'))
 
+    def test_fatal_allocator_log_fails_without_waiting_for_idle(self):
+        self.m.log_path = Path(self.temp.name) / 'comfy.log'
+        self.m.log_path.write_text("terminate called after throwing an instance of 'c10::AcceleratorError'\n  what(): CUDA error: invalid argument\nFatal Python error: Aborted\n")
+        self.m._read_logs()
+        self.assertTrue(self.m.state['fatal_process_error'])
+        self.assertFalse(self.m.state.get('oom', False))
+        with self.assertRaisesRegex(RuntimeError, 'fatal CUDA/process'):
+            self.m.check()
+
 
 if __name__=='__main__': unittest.main()

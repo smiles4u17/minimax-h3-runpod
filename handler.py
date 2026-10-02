@@ -159,8 +159,11 @@ def _low_vram_worker(total_vram_gb: float | None = None) -> bool:
 
 def _comfy_launch_args() -> list[str]:
     args = shlex.split(os.environ.get("COMFY_ARGS", ""))
+    # Async allocator crashed in free_impl while releasing H3 cache tensors.
+    # Keep cache/Sage acceleration, but use PyTorch's native allocator by default.
+    allocator = [] if any(x in args for x in ("--cuda-malloc", "--disable-cuda-malloc")) else ["--disable-cuda-malloc"]
     if not _low_vram_worker():
-        return args
+        return [*allocator, *args]
     automatic = [
         "--reserve-vram",
         os.environ.get("H3_LOW_VRAM_RESERVE_GB", "1"),
@@ -169,7 +172,24 @@ def _comfy_launch_args() -> list[str]:
         "--disable-smart-memory",
         "--cache-none",
     ]
-    return [*automatic, *args]
+    return [*automatic, *allocator, *args]
+
+
+def _check_comfy_process() -> None:
+    if _COMFY_PROCESS is not None:
+        code = _COMFY_PROCESS.poll()
+        if code is not None:
+            raise RuntimeError(f"ComfyUI process exited with code {code}")
+    else:
+        # Initial ComfyUI is launched by start.sh, before the handler exec.
+        pid = os.environ.get("H3_COMFY_PID")
+        if pid and sys.platform == "linux":
+            try:
+                stat = Path(f"/proc/{int(pid)}/stat").read_text()
+            except (FileNotFoundError, ProcessLookupError):
+                raise RuntimeError("ComfyUI process exited") from None
+            if stat.rsplit(")", 1)[1].strip().split()[0] in {"Z", "X"}:
+                raise RuntimeError("ComfyUI process exited (zombie)")
 
 
 def _model_exists(folder: str, name: str) -> bool:
@@ -767,11 +787,15 @@ def _comfy_http_stall(exc: BaseException) -> bool:
 def _wait_for_history(prompt_id: str, telemetry=None) -> dict[str, Any]:
     deadline = time.monotonic() + JOB_TIMEOUT
     while telemetry is not None or time.monotonic() < deadline:
+        _check_comfy_process()
         if telemetry is not None:
             telemetry.check()
         try:
             response = requests.get(f"{COMFY_URL}/history/{prompt_id}", timeout=30)
         except requests.RequestException as exc:
+            _check_comfy_process()
+            if telemetry is not None:
+                telemetry.check()
             if not _comfy_http_stall(exc):
                 raise
             print(f"ComfyUI history poll did not answer; sampling may still be running: {type(exc).__name__}", flush=True)
@@ -979,7 +1003,8 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
                 pass
         # A failed CUDA/Comfy process must not poison the next queued request.
         # A read timeout means Comfy accepted the connection and is busy sampling.
-        refresh = oom or isinstance(exc, TimeoutError) or (not stalled and not _comfy_ready())
+        fatal = bool(monitor and monitor.state.get('fatal_process_error'))
+        refresh = fatal or oom or isinstance(exc, TimeoutError) or (not stalled and not _comfy_ready())
         if monitor:
             monitor.stage('failed', error=str(exc)[:2000], oom=oom, refresh_worker=refresh)
         return {"error": str(exc), "error_type": 'out_of_memory' if oom else type(exc).__name__,

@@ -21,6 +21,13 @@ def is_oom(text):
     return any(x in str(text).lower() for x in ('out of memory', 'outofmemory', 'cuda error: memory allocation', 'cublas_status_alloc_failed'))
 
 
+def fatal_comfy_error(text):
+    lowered = str(text).lower()
+    if any(x in lowered for x in ('fatal python error:', "terminate called after throwing", 'cuda error: invalid argument', 'cuda error: illegal memory access', 'cuda error: device-side assert')):
+        return 'ComfyUI fatal CUDA/process error: ' + redact(text)
+    return None
+
+
 class JobTelemetry:
     def __init__(self, job, root, comfy_url, max_seconds=14400, idle_seconds=1800):
         self.job = job
@@ -106,6 +113,11 @@ class JobTelemetry:
                     if is_oom('\n'.join(lines)):
                         self.error = 'ComfyUI reported an out-of-memory error'
                         self.state.update(oom=True, error=self.error)
+                    else:
+                        fatal = next((fatal_comfy_error(line) for line in lines if fatal_comfy_error(line)), None)
+                        if fatal:
+                            self.error = fatal
+                            self.state.update(error=fatal, fatal_process_error=True)
         except OSError:
             pass
 
