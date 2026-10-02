@@ -238,6 +238,14 @@ ComfyUI starts with `--disable-cuda-malloc` by default, including replacement pr
 
 After installing and verifying `10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors`, set `H3_PREFER_BETA5_INT8=true` to migrate retained full-beta5 requests on low-VRAM workers to the matching INT8 checkpoint. Other checkpoints and higher-VRAM workers are unchanged. Metadata records both requested and actual models. Set `use_original_model=true` in a request to run the full checkpoint explicitly. The opt-in fails if the INT8 file is missing, rather than silently falling back to slow offloading.
 
+Run `scripts/install_beta5_int8_on_volume.py` on a Linux CPU pod with the existing
+network volume mounted at `/runpod-volume`. It pins the published source revision,
+checks available space, verifies the download and every stored byte by SHA-256,
+then publishes the file atomically. It preserves the original full model and
+refuses to overwrite a different existing target. Installation progress is saved
+under `diagnostics/beta5_int8_install.json`. Terminate the temporary installer pod
+after the status reaches `COMPLETED`.
+
 ## Raw workflow mode
 
 You can also send any ComfyUI API-format workflow directly:
