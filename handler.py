@@ -200,6 +200,19 @@ def _model_exists(folder: str, name: str) -> bool:
     return any(path.is_file() for path in candidates)
 
 
+def _effective_beta5_model(requested: str, payload: dict[str, Any], total_vram_gb: float | None) -> str:
+    """Opt-in migration for retained requests that named the full beta5 weights."""
+    full = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors'
+    quantized = '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors'
+    if (requested != full or not _low_vram_worker(total_vram_gb)
+            or not _payload_bool(os.environ.get('H3_PREFER_BETA5_INT8'), default=False)
+            or _payload_bool(payload.get('use_original_model'), default=False)):
+        return requested
+    if not _model_exists('diffusion_models', quantized):
+        raise InputError('Verified beta5 INT8 model must be installed before enabling H3_PREFER_BETA5_INT8')
+    return quantized
+
+
 def _select_encoder(capability: tuple[int, int] | None) -> str:
     forced = os.environ.get("TEXT_ENCODER_FILE")
     if forced:
@@ -337,7 +350,8 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     default_video_vae = workflow["119"]["inputs"]["vae_name"]
     default_audio_vae = workflow["120"]["inputs"]["vae_name"]
     selected_encoder = str(payload.get("clip") or "").strip() or _select_encoder(capability)
-    workflow["127"]["inputs"]["unet_name"] = _model_name(payload, "model", "diffusion_models", default_model)
+    requested_model = _model_name(payload, "model", "diffusion_models", default_model)
+    workflow["127"]["inputs"]["unet_name"] = _effective_beta5_model(requested_model, payload, total_vram_gb)
     workflow["119"]["inputs"]["vae_name"] = _model_name(payload, "video_vae", "vae", default_video_vae)
     workflow["120"]["inputs"]["vae_name"] = _model_name(payload, "audio_vae", "vae", default_audio_vae)
     workflow["128"]["inputs"]["clip_name"] = _model_name({"clip": selected_encoder}, "clip", "text_encoders", selected_encoder)
@@ -478,6 +492,8 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "attention": attention,
         "text_encoder": workflow["128"]["inputs"]["clip_name"],
         "model": workflow["127"]["inputs"]["unet_name"],
+        "requested_model": requested_model,
+        "model_substitution": 'beta5_int8_low_vram' if requested_model != workflow["127"]["inputs"]["unet_name"] else None,
         "video_vae": workflow["119"]["inputs"]["vae_name"],
         "audio_vae": workflow["120"]["inputs"]["vae_name"],
         "turbo_enabled": turbo_enabled,

@@ -40,6 +40,19 @@ class HistoryPollTests(unittest.TestCase):
                 handler._wait_for_history('pid')
             get.assert_not_called()
 
+    def test_beta5_migration_preserves_other_models_and_explicit_override(self):
+        full = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors'
+        quantized = '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors'
+        with mock.patch.dict(handler.os.environ, {'H3_PREFER_BETA5_INT8': 'true'}), mock.patch.object(handler, '_model_exists', return_value=True):
+            self.assertEqual(handler._effective_beta5_model(full, {}, 32), quantized)
+            self.assertEqual(handler._effective_beta5_model(full, {'use_original_model': True}, 32), full)
+            self.assertEqual(handler._effective_beta5_model(full, {}, 96), full)
+            self.assertEqual(handler._effective_beta5_model('other.safetensors', {}, 32), 'other.safetensors')
+        with mock.patch.dict(handler.os.environ, {'H3_PREFER_BETA5_INT8': 'true'}), mock.patch.object(handler, '_model_exists', return_value=False):
+            with self.assertRaisesRegex(handler.InputError, 'must be installed'):
+                handler._effective_beta5_model(full, {}, 32)
+
+
     def test_fatal_telemetry_checked_after_http_timeout(self):
         class ReadTimeout(Exception):
             pass

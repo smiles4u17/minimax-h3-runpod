@@ -233,6 +233,8 @@ python examples/client.py examples/fl2v_request.json
 
 ComfyUI starts with `--disable-cuda-malloc` by default, including replacement processes. This uses PyTorch's native allocator after an observed cudaMallocAsync `free_impl` abort during H3 First Block Cache cleanup. Sage and First Block Cache remain available. An explicit allocator flag in `COMFY_ARGS` overrides this default. Fatal CUDA/process logs and exited ComfyUI processes fail the request promptly and request a worker refresh; ordinary busy HTTP timeouts remain retryable.
 
+After installing and verifying `10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors`, set `H3_PREFER_BETA5_INT8=true` to migrate retained full-beta5 requests on low-VRAM workers to the matching INT8 checkpoint. Other checkpoints and higher-VRAM workers are unchanged. Metadata records both requested and actual models. Set `use_original_model=true` in a request to run the full checkpoint explicitly. The opt-in fails if the INT8 file is missing, rather than silently falling back to slow offloading.
+
 ## Raw workflow mode
 
 You can also send any ComfyUI API-format workflow directly:
