@@ -3288,16 +3288,16 @@ def make_thumbnail(path: Path) -> Optional[Path]:
         return None
 
 
-def file_info(path: Path) -> dict[str, Any]:
+def file_info(path: Path, probe_media: bool = True) -> dict[str, Any]:
     st = path.stat()
     info = {"name": path.name, "path": str(path), "is_dir": path.is_dir(), "ext": path.suffix.lower(), "kind": "folder" if path.is_dir() else media_kind(path), "size": st.st_size if path.is_file() else None, "size_mb": round(st.st_size/(1024*1024), 3) if path.is_file() else None, "modified": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.st_mtime)), "created": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.st_ctime))}
-    if path.is_file() and media_kind(path) == "image":
+    if probe_media and path.is_file() and media_kind(path) == "image":
         try:
             from PIL import Image
             img = Image.open(path)
             info["width"] = img.width; info["height"] = img.height
         except Exception: pass
-    if path.is_file() and media_kind(path) == "video":
+    if probe_media and path.is_file() and media_kind(path) == "video":
         try: info.update(video_probe(path))
         except Exception: pass
     return info
@@ -3359,7 +3359,7 @@ def browse(path: str="", media_type: str="All", search: str="", recursive: bool=
     candidates = sort_browser_items(candidates, sort_by, sort_dir, is_dir=lambda p: p.is_dir())
     for p in candidates[:750]:
         try:
-            info = file_info(p)
+            info = file_info(p, probe_media=False)
             if p.is_file() and info["kind"] in {"image", "video"}: info["thumb_url"] = f"/api/thumb?path={urllib.parse.quote(str(p))}"
             if p.is_file(): info["file_url"] = f"/api/file?path={urllib.parse.quote(str(p))}"
             items.append(info)
@@ -3457,7 +3457,7 @@ def s3_details(key: str, storage: str = "main"):
     return {"source": "s3", "storage": storage_name, "bucket": h.bucket, "key": key, "path": f"s3://{h.bucket}/{key}", "name": Path(key).name, "kind": kind, "size_mb": round((meta.get("ContentLength") or 0)/(1024*1024), 3), "modified": meta.get("LastModified").isoformat() if meta.get("LastModified") else "", "file_url": url}
 
 @app.get("/api/s3/preview")
-def s3_preview(key: str, storage: str = "main"):
+def s3_preview(request: Request, key: str, storage: str = "main"):
     key = str(key or "").strip()
     if not key:
         raise HTTPException(400, "S3 key required")
@@ -3470,15 +3470,33 @@ def s3_preview(key: str, storage: str = "main"):
         meta = s3_object_metadata(h, key)
     except Exception as e:
         raise HTTPException(404, f"S3 object not found: {e}")
-    suffix = Path(key).suffix or ".bin"
-    safe = hashlib.sha1(f"{storage_name}/{h.bucket}/{key}/{meta.get('ETag','')}/{meta.get('ContentLength','')}".encode("utf-8", "ignore")).hexdigest()
-    out_dir = TEMP_DIR / "s3_preview"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{safe}{suffix}"
-    expected = int(meta.get("ContentLength") or 0)
-    if not out.exists() or (expected and out.stat().st_size != expected):
-        h.download_key(key, out)
-    return FileResponse(str(out), media_type=media_type_for_path(out), filename=Path(key).name)
+    # Stream only the bytes requested by the player, including seek requests.
+    # Downloading a whole remote video before responding delayed every preview.
+    kwargs = {"Bucket": h.bucket, "Key": key}
+    byte_range = request.headers.get("range")
+    if byte_range:
+        if not re.fullmatch(r"bytes=(?:\d+-\d*|-\d+)", byte_range):
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{meta.get('ContentLength', 0)}"})
+        kwargs["Range"] = byte_range
+    try:
+        obj = h.call("get_object", **kwargs)
+    except Exception as e:
+        if getattr(e, "response", {}).get("Error", {}).get("Code") in {"InvalidRange", "RequestedRangeNotSatisfiable"}:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{meta.get('ContentLength', 0)}"})
+        raise HTTPException(502, "S3 preview unavailable") from e
+    body = obj["Body"]
+    def chunks():
+        try:
+            yield from body.iter_chunks(chunk_size=256 * 1024)
+        finally:
+            body.close()
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(obj["ContentLength"])}
+    if obj.get("ContentRange"):
+        headers["Content-Range"] = obj["ContentRange"]
+    if meta.get("ETag"):
+        headers["ETag"] = meta["ETag"]
+    return StreamingResponse(chunks(), status_code=206 if obj.get("ContentRange") else 200,
+                             media_type=media_type_for_path(Path(key)), headers=headers)
 
 @app.post("/api/s3/download")
 def s3_download(data: dict[str, Any]):

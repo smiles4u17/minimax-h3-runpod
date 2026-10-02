@@ -276,11 +276,11 @@ def _payload_bool(value: Any, default: bool = False) -> bool:
     raise InputError(f"Invalid boolean value: {value!r}")
 
 
-def _model_name(payload: dict[str, Any], key: str, folder: str, fallback: str) -> str:
+def _model_name(payload: dict[str, Any], key: str, folder: str, fallback: str, *, validate_exists: bool = True) -> str:
     name = str(payload.get(key) or fallback).replace("\\", "/").strip("/")
     if not name or ".." in Path(name).parts or Path(name).is_absolute():
         raise InputError(f"Invalid {key} model name: {name!r}")
-    if not _model_exists(folder, name):
+    if validate_exists and not _model_exists(folder, name):
         raise InputError(f"{key} model is not installed in models/{folder}: {name}")
     return name
 
@@ -350,8 +350,9 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     default_video_vae = workflow["119"]["inputs"]["vae_name"]
     default_audio_vae = workflow["120"]["inputs"]["vae_name"]
     selected_encoder = str(payload.get("clip") or "").strip() or _select_encoder(capability)
-    requested_model = _model_name(payload, "model", "diffusion_models", default_model)
-    workflow["127"]["inputs"]["unet_name"] = _effective_beta5_model(requested_model, payload, total_vram_gb)
+    requested_model = _model_name(payload, "model", "diffusion_models", default_model, validate_exists=False)
+    effective_model = _effective_beta5_model(requested_model, payload, total_vram_gb)
+    workflow["127"]["inputs"]["unet_name"] = _model_name({"model": effective_model}, "model", "diffusion_models", default_model)
     workflow["119"]["inputs"]["vae_name"] = _model_name(payload, "video_vae", "vae", default_video_vae)
     workflow["120"]["inputs"]["vae_name"] = _model_name(payload, "audio_vae", "vae", default_audio_vae)
     workflow["128"]["inputs"]["clip_name"] = _model_name({"clip": selected_encoder}, "clip", "text_encoders", selected_encoder)

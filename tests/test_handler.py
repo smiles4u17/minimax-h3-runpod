@@ -264,6 +264,22 @@ class WorkflowTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def test_retained_beta5_request_builds_after_full_model_removal(self):
+        full = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors'
+        quantized = '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors'
+        (handler.COMFY_ROOT / 'models/diffusion_models' / quantized).touch()
+        payload = {'task': 't2v', 'prompt': 'robot', 'model': full}
+        with mock.patch.dict(handler.os.environ, {'H3_PREFER_BETA5_INT8': 'true'}), mock.patch.object(handler, '_gpu_total_vram_gb', return_value=32):
+            graph, _ = handler.build_preset(payload)
+            self.assertEqual(graph['127']['inputs']['unet_name'], quantized)
+            with self.assertRaisesRegex(handler.InputError, 'not installed'):
+                handler.build_preset(dict(payload, use_original_model=True))
+            with self.assertRaisesRegex(handler.InputError, 'Invalid model'):
+                handler.build_preset(dict(payload, model='../bad.safetensors'))
+        with mock.patch.dict(handler.os.environ, {'H3_PREFER_BETA5_INT8': 'true'}):
+            with self.assertRaisesRegex(handler.InputError, 'not installed'):
+                handler.build_preset(payload)
+
     def test_fl2v_native_last_frame_and_lora(self) -> None:
         workflow, metadata = handler.build_preset({
             "task": "fl2v",

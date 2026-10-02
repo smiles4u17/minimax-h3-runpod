@@ -16,6 +16,31 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_folder_listing_does_not_probe_videos(self):
+        root = Path(self.temp_dir.name)
+        (root / 'example.mp4').write_bytes(b'video')
+        with mock.patch.object(media_console, 'video_probe', side_effect=AssertionError('listing spawned ffprobe')) as probe:
+            listing = media_console.browse(str(root), media_type='Videos')
+            self.assertEqual([it['name'] for it in listing['items']], ['example.mp4'])
+            probe.assert_not_called()
+        with mock.patch.object(media_console, 'video_probe', return_value={'duration': 15}) as probe:
+            self.assertEqual(media_console.file_info(root / 'example.mp4')['duration'], 15)
+            probe.assert_called_once()
+
+    def test_s3_preview_streams_requested_range_and_closes_body(self):
+        from botocore.response import StreamingBody
+        helper = mock.Mock()
+        body = StreamingBody(io.BytesIO(b'part'), 4)
+        helper.call.return_value = {'Body': body, 'ContentLength': 4, 'ContentRange': 'bytes 2-5/10'}
+        with mock.patch.object(media_console, 'require_named_s3', return_value=('h3', helper)), mock.patch.object(media_console, 's3_object_metadata', return_value={'ContentLength': 10}):
+            response = self.client.get('/api/s3/preview?key=test.mp4&storage=h3', headers={'Range': 'bytes=2-5'})
+            self.assertEqual(response.status_code, 206)
+            self.assertEqual(response.content, b'part')
+            self.assertEqual(response.headers['content-range'], 'bytes 2-5/10')
+            helper.call.assert_called_once_with('get_object', Bucket=helper.bucket, Key='test.mp4', Range='bytes=2-5')
+            self.assertTrue(body._raw_stream.closed)
+            self.assertEqual(self.client.get('/api/s3/preview?key=test.mp4', headers={'Range': 'bytes=0-1,3-4'}).status_code, 416)
+
     def test_dated_workflow_payload_and_preupload_validation(self):
         data={"settings":{"runpod_api_key":"key","h3_endpoint_id":"test"},
               "workflow_variant":"fflf_20260920","prompt":"A toy robot","steps":4,
