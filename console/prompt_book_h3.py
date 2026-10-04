@@ -32,7 +32,7 @@ BETA5_MODEL = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
 H3_GENERATION_FIELDS = {
     "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
     "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
-    "latent_upscale_model", "cache_enabled", "cache_threshold", "attention",
+    "latent_upscale_model", "cache_enabled", "cache_threshold", "attention", "reference_resolution",
     "seed", "seed_random", "turbo_enabled", "use_larry", "turbo_family",
     "turbo_lora", "turbo_strength", "pdd_enabled", "sampling_preset",
     "sparse_keep_percent", "sparse_tau", "sparse_start_percent",
@@ -573,6 +573,7 @@ def build_prompt_book_h3_request(
         "pass1_split": split,
         "second_pass_sigma": second_sigma,
         "diagnostic_frames": flag(data, "diagnostic_frames", False),
+        "reference_resolution": data.get('reference_resolution', 'generation'),
         "megapixels": megapixels,
         "final_megapixels": final_megapixels,
         "sparse_keep_percent": parse_number(data.get("sparse_keep_percent"), 10, 0.5, 95, "Sparse keep percent"),
@@ -602,7 +603,7 @@ def build_prompt_book_h3_request(
         "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
         "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
         "cache_enabled", "cache_threshold", "attention", "seed_random",
-        "diagnostic_frames", "ref2va_model",
+        "diagnostic_frames", "ref2va_model", "reference_resolution",
     ) if key in data}
     if inherited is not None:
         if not isinstance(inherited, dict):

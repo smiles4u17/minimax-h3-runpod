@@ -45,4 +45,5 @@ async def resolve_models(request):
         result.append({'category': category, 'name': name, 'path': str(Path(path).resolve()), 'size': Path(path).stat().st_size})
     return web.json_response({'models': result})
 
-NODE_CLASS_MAPPINGS = {}
+from .reference_scale import H3ReferenceVideoScale
+NODE_CLASS_MAPPINGS = {'H3ReferenceVideoScale': H3ReferenceVideoScale}

@@ -106,6 +106,18 @@ class VariantTests(unittest.TestCase):
         self.assertNotIn('9320', normal)
         self.assertNotIn('9324', normal)
 
+    def test_reference_video_resize_preserves_audio_and_can_be_disabled(self):
+        graph, _ = self.build('ref2v_20260920', reference_videos=[asset('clip.mp4')])
+        source = graph['136']['inputs']['ref_videos.ref_video_0']
+        self.assertEqual(graph[source[0]]['class_type'], 'H3ReferenceVideoScale')
+        self.assertEqual(graph[source[0]]['inputs']['images'], ['8200', 0])
+        self.assertEqual(graph[source[0]]['inputs']['width'], ['115', 0])
+        self.assertEqual(graph['136']['inputs']['ref_video_audios.ref_video_audio_0'], ['8200', 2])
+        original, _ = self.build('ref2v_20260920', reference_videos=[asset('clip.mp4')], reference_resolution='original')
+        self.assertEqual(original['136']['inputs']['ref_videos.ref_video_0'], ['8200', 0])
+        with self.assertRaises(ValueError):
+            self.build('ref2v_20260920', reference_resolution='invalid')
+
     def test_larry_uses_dedicated_sampler_both_passes(self):
         graph,_=self.build(use_larry=True,turbo_lora='H3/minimax_h3_turbo_v4_step600_ema.safetensors')
         first=graph['125']['inputs']['sampler'];self.assertEqual(graph['9308']['inputs']['sampler'],first)

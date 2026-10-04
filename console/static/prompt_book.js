@@ -2,7 +2,7 @@ let PB = {catalog: null, subject: '', subjectB: '', video: '', subjectFolder: ''
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
 const PB_GENERATION_STORE = 'prompt-book-h3-generation-v1';
 const PB_DEFAULT_MODEL = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors';
-const PB_GENERATION_FIELDS = ['model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'cache_enabled', 'cache_threshold'];
+const PB_GENERATION_FIELDS = ['model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'cache_enabled', 'cache_threshold', 'reference_resolution'];
 
 function pbEsc(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -359,6 +359,7 @@ function pbGenerationSettings() {
     latent_upscale: latent,
     final_megapixels: latent ? pbGenerationNumber('pb_final_megapixels', 'Final size', 0.2, 2) : 0.9,
     rtx_upscale: pbChecked('pb_rtx_upscale'),
+    reference_resolution: val('pb_reference_resolution') || 'generation',
     diagnostic_frames: pbChecked('pb_diagnostic_frames'),
     seed_random: random,
     seed: random ? 0 : pbGenerationNumber('pb_seed', 'Seed', 0, Number.MAX_SAFE_INTEGER, true),
