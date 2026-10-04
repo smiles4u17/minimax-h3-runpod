@@ -12,7 +12,7 @@ def copy_flat_output(source: Path, directory: Path) -> Path:
     match = re.fullmatch(r'(.+?)_(\d+)_?(?:_[0-9a-f]{32})?', source.stem)
     prefix = match.group(1) if match else source.stem
     extension = source.suffix.lower()
-    reservations = directory / '.sequences' / (prefix + extension)
+    reservations = directory.parent / '.output-sequences' / directory.name / (prefix + extension)
     reservations.mkdir(parents=True, exist_ok=True)
     pattern = re.compile(re.escape(prefix) + r'_(\d+)_?(?:_[0-9a-f]{32})?' + re.escape(extension))
     highest = 0
