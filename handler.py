@@ -978,6 +978,11 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         monitor.stage('worker_received')
         monitor.start_watchdog()
         _ensure_comfy_ready()
+        if payload.get('action') == 'attention_check':
+            monitor.stage('attention_address_check')
+            checked = requests.post(COMFY_URL + '/h3/attention-check', json={}, timeout=120)
+            checked.raise_for_status()
+            return {'attention_validation': checked.json()}
         inventory = runtime_inventory(COMFY_URL, VOLUME_ROOT)
         global SAMPLERS, SCHEDULERS
         SAMPLERS = set(inventory['samplers'])

@@ -47,3 +47,11 @@ async def resolve_models(request):
 
 from .reference_scale import H3ReferenceVideoScale
 NODE_CLASS_MAPPINGS = {'H3ReferenceVideoScale': H3ReferenceVideoScale}
+
+
+@PromptServer.instance.routes.post('/h3/attention-check')
+async def attention_check(request):
+    from .attention_probe import probe
+    result = probe()
+    torch.cuda.empty_cache()
+    return web.json_response(result)
