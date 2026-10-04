@@ -53,6 +53,11 @@ _WORKER_STARTED = time.monotonic()
 WORKER_MAX_SECONDS = 7200
 
 
+def worker_refresh_due():
+    # Retire at a completed-job boundary rather than starting a long job with too little life left.
+    return time.monotonic() - _WORKER_STARTED >= WORKER_MAX_SECONDS - 5400
+
+
 def runtime_limits(payload):
     maximum = min(int(payload.get('max_runtime_seconds', os.environ.get('H3_MAX_RUNTIME_SECONDS', '5400'))), 5400)
     idle = min(int(payload.get('idle_timeout_seconds', os.environ.get('H3_IDLE_TIMEOUT_SECONDS', '900'))), 900, maximum)
@@ -1027,7 +1032,7 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         monitor.check()
         monitor.stage('completed', files=[{'filename': f['filename'], 'size': f['size']} for f in files])
         return {"files": files, "metadata": metadata, "prompt_id": prompt_id,
-                'refresh_worker': time.monotonic() - _WORKER_STARTED >= WORKER_MAX_SECONDS - 60}
+                'refresh_worker': worker_refresh_due()}
     except InputError as exc:
         if monitor:
             monitor.stage('invalid_input', error=str(exc)[:2000])

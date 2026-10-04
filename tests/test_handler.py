@@ -32,6 +32,12 @@ def asset(name: str) -> dict[str, str]:
 
 
 class HistoryPollTests(unittest.TestCase):
+    def test_completed_job_retires_worker_before_next_budget_would_be_shortened(self):
+        with mock.patch.object(handler.time, 'monotonic', return_value=handler._WORKER_STARTED + 1799):
+            self.assertFalse(handler.worker_refresh_due())
+        with mock.patch.object(handler.time, 'monotonic', return_value=handler._WORKER_STARTED + 1800):
+            self.assertTrue(handler.worker_refresh_due())
+
     def test_legacy_payload_cannot_bypass_hard_caps(self):
         with mock.patch.object(handler.time, 'monotonic', return_value=handler._WORKER_STARTED):
             self.assertEqual(handler.runtime_limits({'max_runtime_seconds': 86400, 'idle_timeout_seconds': 1800}), (5400, 900))
