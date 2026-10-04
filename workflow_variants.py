@@ -10,6 +10,13 @@ SIGMAS = {1: "0.9035, 0.6316, 0.3158, 0.0000",
           3: "0.9231, 0.8780, 0.8000, 0.6316, 0.3158, 0.0000",
           5: "0.9035, 0.8500, 0.8000, 0.7200, 0.6316, 0.5000, 0.3158, 0.1500, 0.0000"}
 
+# A baked model without the separate Turbo adapter needs a clean source and
+# a refinement schedule, not the adapter's near-full-noise restart schedule.
+REFINE_SIGMAS = {1: "0.4500, 0.3000, 0.1500, 0.0000",
+                 2: "0.4500, 0.3375, 0.2250, 0.1125, 0.0000",
+                 3: "0.4500, 0.3600, 0.2700, 0.1800, 0.0900, 0.0000",
+                 5: "0.4500, 0.39375, 0.3375, 0.28125, 0.2250, 0.16875, 0.1125, 0.05625, 0.0000"}
+
 def apply_variant(graph, payload, materialize, model_name):
     options = workflow_options(payload)
     if options['workflow_variant'] == 'legacy':
@@ -42,9 +49,11 @@ def apply_variant(graph, payload, materialize, model_name):
             raise ValueError('First-pass split cannot exceed total schedule steps')
         if split == steps and options['second_pass_sigma'] == 4:
             raise ValueError('Remaining sigmas require a first-pass split below total steps')
-        if split < steps:
+        clean_refine = not options['turbo_enabled'] and options['second_pass_sigma'] != 4
+        effective_split = steps if clean_refine else split
+        if effective_split < steps:
             sigmas = copy.deepcopy(graph['125']['inputs']['sigmas'])
-            add('9300', 'SplitSigmas', sigmas=sigmas, step=split)
+            add('9300', 'SplitSigmas', sigmas=sigmas, step=effective_split)
             graph['125']['inputs']['sigmas'] = ['9300', 0]
         add('9301', 'LTXVSeparateAVLatent', av_latent=['125', 1])
         add('9302', 'ResolutionSelector', aspect_ratio=payload.get('aspect_ratio','16:9 (Widescreen)'), megapixels=options['final_megapixels'], multiple=32)
@@ -61,11 +70,15 @@ def apply_variant(graph, payload, materialize, model_name):
             model = graph[model[0]]['inputs']['model']
         add('9306', 'BasicGuider', model=model, conditioning=['9305',0])
         mode = options['second_pass_sigma']
-        second_sigmas = ['9300',1] if mode == 4 else add('9307','ManualSigmas',sigmas=SIGMAS[mode])
+        schedules = REFINE_SIGMAS if clean_refine else SIGMAS
+        second_sigmas = ['9300',1] if mode == 4 else add('9307','ManualSigmas',sigmas=schedules[mode])
         final_latent = add('9308', 'SamplerCustomAdvanced', noise=['129',0], guider=['9306',0],
             sampler=graph['125']['inputs']['sampler'], sigmas=second_sigmas, latent_image=['9304',0])
         graph['121']['inputs']['samples'] = final_latent
         graph['122']['inputs']['samples'] = final_latent
+        options.update(first_pass_steps=effective_split,
+                       latent_refine_strategy='clean_low_noise' if clean_refine else 'split_schedule',
+                       second_pass_sigmas=schedules.get(mode, 'remaining'))
     images = ['122',0]
     if options['rtx_upscale']:
         ratio = str(payload.get('aspect_ratio','16:9')).split()[0]

@@ -65,6 +65,29 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(graph['9308']['inputs']['sigmas'], ['9307', 0])
         self.assertEqual(len(graph['9307']['inputs']['sigmas'].split(',')), 9)
 
+    def test_baked_model_refine_preserves_clean_first_pass_for_both_tabs(self):
+        for variant in ('fflf_20260920', 'ref2v_20260920'):
+            for choice in (1, 2, 3, 5):
+                graph, meta = self.build(variant, turbo_enabled=False, second_pass_sigma=choice)
+                self.assertNotIn('9300', graph)
+                self.assertEqual(graph['125']['inputs']['sigmas'], ['124', 0])
+                self.assertEqual(graph['9301']['inputs']['av_latent'], ['125', 1])
+                sigmas = [float(v) for v in graph['9307']['inputs']['sigmas'].split(',')]
+                self.assertEqual(sigmas[0], .45)
+                self.assertEqual(sigmas[-1], 0)
+                self.assertTrue(all(a > b for a, b in zip(sigmas, sigmas[1:])))
+                self.assertEqual(meta['first_pass_steps'], 8)
+                self.assertEqual(meta['latent_refine_strategy'], 'clean_low_noise')
+                self.assertEqual(graph['9306']['inputs']['conditioning'], ['9305', 0])
+                self.assertEqual(graph['9305']['inputs']['width'], ['9302', 0])
+                self.assertEqual(graph['9305']['inputs']['height'], ['9302', 1])
+
+    def test_explicit_remaining_schedule_keeps_its_split_without_turbo(self):
+        graph, meta = self.build('ref2v_20260920', turbo_enabled=False, second_pass_sigma=4)
+        self.assertEqual(graph['125']['inputs']['sigmas'], ['9300', 0])
+        self.assertEqual(graph['9308']['inputs']['sigmas'], ['9300', 1])
+        self.assertEqual(meta['first_pass_steps'], 3)
+
     def test_diagnostic_frames_capture_both_refine_boundaries(self):
         graph, _ = self.build('ref2v_20260920', diagnostic_frames=True)
         self.assertEqual(graph['9320']['inputs']['samples'], ['125', 1])

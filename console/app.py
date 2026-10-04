@@ -16,7 +16,7 @@ from h3_workflow_options import workflow_options, validate_keyframes, variant_de
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.04-h3-reference-trim"
+APP_VERSION = "web-v16.05-h3-clean-refine"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -5147,6 +5147,7 @@ async def run_h3(data: dict[str, Any]):
         return "url" if "url" in asset else ("base64" if "data" in asset else "none")
     debug = {
         "task": task,
+        "workflow_options": variant_options,
         "delivery": delivery,
         "effective_delivery": effective_delivery,
         "estimated_inline_mib": round(estimated_inline_bytes / (1024 * 1024), 2),

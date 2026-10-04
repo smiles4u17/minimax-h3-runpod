@@ -49,7 +49,7 @@ function bindH3PhotoDrop(card,upload){
   function sync(change=false){
     const active=isNew(),fflf=variant().startsWith('fflf');
     photos.classList.toggle('hidden',!active);
-    $('h3_variant_notice').textContent=active?'':'Upscale stages are available for FFLF and Ref2V.';
+    $('h3_variant_notice').textContent=active?(chk('h3_no_turbo')&&chk('h3_latent_upscale')&&val('h3_second_pass_sigma')!=='4'?'Latent refine: complete the first pass, then preserve its composition with low-noise refinement.':''):'Upscale stages are available for FFLF and Ref2V.';
     updateH3TaskUI();
     $('h3_reference_grid').classList.toggle('hidden',active);
     for(const el of [$('h3_reference_grid').previousElementSibling,$('h3_reference_grid').previousElementSibling.previousElementSibling,document.querySelector('.h3SubjectBookBar')])el?.classList.toggle('hidden',active);
@@ -65,10 +65,12 @@ function bindH3PhotoDrop(card,upload){
     $('h3_sampler').disabled=chk('h3_turbo_enabled')&&chk('h3_use_larry');
     for(const id of ['h3_latent_upscale','h3_rtx_upscale','h3_use_multi_image'])$(id).disabled=!active;
     for(const id of ['h3_final_megapixels','h3_pass1_split','h3_second_pass_sigma','h3_latent_upscale_model'])$(id).disabled=!active||!chk('h3_latent_upscale');
+    if(chk('h3_no_turbo')&&val('h3_second_pass_sigma')!=='4')$('h3_pass1_split').disabled=true;
   }
   $('h3_task').addEventListener('change',()=>{sync(true);persistSettingsSoon()});
   $('h3_use_larry').onchange=()=>{selectH3TurboFamily(chk('h3_use_larry')?'larry':'lightx2v');sync();persistSettingsSoon()};
   for(const id of ['h3_no_turbo','h3_latent_upscale','h3_rtx_upscale'])$(id).onchange=()=>{sync();persistSettingsSoon()};
+  $('h3_second_pass_sigma').onchange=()=>{sync();persistSettingsSoon()};
   // Move existing controls so their IDs and existing bindings remain intact.
   const low=$('h3_megapixels').closest('label');for(const node of low.childNodes)if(node.nodeType===3&&node.textContent.trim()){node.textContent='LOWRES SIZE (MP)';break}
   function group(title,ids){const section=document.createElement('section');section.className='h3ControlGroup';const heading=document.createElement('h3');heading.textContent=title;const fields=document.createElement('div');fields.className='fields h3PairedFields';section.append(heading,fields);for(const id of ids)fields.appendChild($(id).closest('label'));panel.appendChild(section)}
@@ -81,7 +83,7 @@ function bindH3PhotoDrop(card,upload){
   generationBody.querySelector(':scope > h3').textContent='Runtime & advanced';
   const original=h3Settings;
   window.h3Settings=()=>{const legacy=original();const settings={...legacy,legacy_inputs:{first_frame_path:legacy.first_frame_path,last_frame_path:legacy.last_frame_path,reference_paths:legacy.reference_paths,reference_subjects:legacy.reference_subjects},workflow_variant:variant(),use_multi_image:chk('h3_use_multi_image'),use_larry:chk('h3_use_larry'),latent_upscale:chk('h3_latent_upscale'),rtx_upscale:chk('h3_rtx_upscale'),final_megapixels:Number(val('h3_final_megapixels')),pass1_split:Number(val('h3_pass1_split')),second_pass_sigma:Number(val('h3_second_pass_sigma')),latent_upscale_model:val('h3_latent_upscale_model'),photo_paths:[1,2,3,4].map(i=>val('h3_photo'+i).trim()),keyframe_positions:[1,2,3,4].map(i=>val('h3_keyframe'+i).trim())};
-    if(isNew()){settings.task=settings.workflow_variant==='fflf_20260920'?'fl2v':'r2v';settings.first_frame_path=settings.use_multi_image?settings.photo_paths.find(Boolean)||'':settings.photo_paths[0];settings.last_frame_path=settings.photo_paths[1];settings.reference_paths=settings.photo_paths.filter(Boolean);settings.turbo_enabled=!chk('h3_no_turbo');settings.sampling_preset='custom';settings.pdd_enabled=false;settings.turbo_family=settings.use_larry?'larry':'lightx2v'}
+    if(isNew()){settings.task=settings.workflow_variant==='fflf_20260920'?'fl2v':'r2v';settings.first_frame_path=settings.use_multi_image?settings.photo_paths.find(Boolean)||'':settings.photo_paths[0];settings.last_frame_path=settings.photo_paths[1];settings.reference_paths=settings.photo_paths.filter(Boolean);settings.turbo_enabled=!chk('h3_no_turbo');settings.sampling_preset='custom';settings.pdd_enabled=false;settings.turbo_family=settings.use_larry?'larry':'lightx2v';if(!settings.turbo_enabled&&settings.second_pass_sigma!==4)settings.pass1_split=settings.steps}
     return settings;
   };
   const apply=applyH3Settings;

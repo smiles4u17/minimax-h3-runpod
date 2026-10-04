@@ -343,8 +343,8 @@ function pbGenerationNumber(id, label, low, high, whole = false) {
 function pbGenerationSettings() {
   const steps = pbGenerationNumber('pb_steps', 'Steps', 1, 1000, true);
   const latent = pbChecked('pb_latent_upscale');
-  const split = latent ? pbGenerationNumber('pb_pass1_split', 'First-pass sigma split', 1, steps, true) : steps;
   const second = latent ? pbGenerationNumber('pb_second_pass_sigma', 'Second-pass sigmas', 1, 5, true) : 1;
+  const split = latent && second === 4 ? pbGenerationNumber('pb_pass1_split', 'First-pass sigma split', 1, steps, true) : steps;
   if (latent && split === steps && second === 4)
     throw new Error('Remaining sigmas require a first-pass split below the step count.');
   const sampler = val('pb_sampler').trim();
@@ -371,6 +371,7 @@ function pbGenerationSettings() {
 function pbUpdateGenerationControls() {
   const latent = pbChecked('pb_latent_upscale');
   for (const id of ['pb_pass1_split', 'pb_second_pass_sigma', 'pb_final_megapixels']) if ($(id)) $(id).disabled = !latent;
+  if ($('pb_pass1_split') && val('pb_second_pass_sigma') !== '4') $('pb_pass1_split').disabled = true;
   if ($('pb_seed')) $('pb_seed').disabled = pbChecked('pb_seed_random');
   if ($('pb_cache_threshold')) $('pb_cache_threshold').disabled = !pbChecked('pb_cache_enabled');
   pbH3Summary();
@@ -434,7 +435,7 @@ function pbH3Summary() {
   if (!note) return;
   try {
     const h3 = pbGenerationSettings();
-    note.textContent = `Prompt Book Ref2V · separate Turbo off · ${h3.sampler}/${h3.scheduler} · ${h3.steps} steps · ${h3.megapixels} MP${h3.latent_upscale ? ` → ${h3.final_megapixels} MP (split ${h3.pass1_split}, second sigmas ${h3.second_pass_sigma})` : ''}${h3.rtx_upscale ? ' → RTX' : ''} · ${pbLoras().length} Prompt Book LoRA(s).`;
+    note.textContent = `Prompt Book Ref2V · separate Turbo off · ${h3.sampler}/${h3.scheduler} · ${h3.steps} steps · ${h3.megapixels} MP${h3.latent_upscale ? ` → ${h3.final_megapixels} MP (${h3.second_pass_sigma === 4 ? `split ${h3.pass1_split}, remaining sigmas` : 'complete first pass, low-noise refine'})` : ''}${h3.rtx_upscale ? ' → RTX' : ''} · ${pbLoras().length} Prompt Book LoRA(s).`;
   } catch (error) { note.textContent = 'Prompt Book settings need attention: ' + error.message; }
 }
 

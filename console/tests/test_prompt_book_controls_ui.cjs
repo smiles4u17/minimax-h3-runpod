@@ -63,9 +63,13 @@ vm.runInContext(source, context);
   assert.equal(generation.sampler, 'res_multistep');
   assert.equal(generation.scheduler, 'karras');
   assert.equal(generation.steps, 20);
-  assert.equal(generation.pass1_split, 14);
+  assert.equal(generation.pass1_split, 20, 'Manual refine finishes the first pass');
   assert.equal(generation.second_pass_sigma, 5);
   assert.equal(generation.seed, 42);
+  values.pb_second_pass_sigma = '4';
+  assert.equal(vm.runInContext('pbGenerationSettings()', context).pass1_split, 14,
+    'Explicit remaining sigmas retain the user split');
+  values.pb_second_pass_sigma = '5';
   assert.equal(elements.pb_h3_settings_summary.textContent.includes('separate Turbo off'), true);
   Object.assign(values, {pb_duration: '15', pb_video_start: '145', pb_video_end: '147',
     pb_start: '145', pb_prompt: 'A neutral reference test.'});
