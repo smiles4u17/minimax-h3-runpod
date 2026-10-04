@@ -49,6 +49,19 @@ SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential"
 
 _COMFY_PROCESS: subprocess.Popen[Any] | None = None
 _COMFY_LOCK = threading.Lock()
+_WORKER_STARTED = time.monotonic()
+WORKER_MAX_SECONDS = 7200
+
+
+def runtime_limits(payload):
+    maximum = min(int(payload.get('max_runtime_seconds', os.environ.get('H3_MAX_RUNTIME_SECONDS', '5400'))), 5400)
+    idle = min(int(payload.get('idle_timeout_seconds', os.environ.get('H3_IDLE_TIMEOUT_SECONDS', '900'))), 900, maximum)
+    if not 60 <= idle <= maximum:
+        raise InputError('Timeouts require 60 <= inactivity <= maximum runtime; hard caps are 900/5400 seconds')
+    remaining = int(WORKER_MAX_SECONDS - (time.monotonic() - _WORKER_STARTED))
+    if remaining < 60:
+        raise TimeoutError('H3 worker lifetime reached; refresh required')
+    return min(maximum, remaining), min(idle, remaining)
 
 TASKS = {
     "fl2v": {
@@ -953,12 +966,10 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         return {"error": "input must be an object"}
     monitor = None
     try:
-        max_seconds = int(payload.get('max_runtime_seconds', os.environ.get('H3_MAX_RUNTIME_SECONDS', '14400')))
-        idle_seconds = int(payload.get('idle_timeout_seconds', os.environ.get('H3_IDLE_TIMEOUT_SECONDS', '1800')))
-        if not 60 <= idle_seconds <= max_seconds <= 86400:
-            raise InputError('Timeouts require 60 <= inactivity <= maximum runtime <= 86400 seconds')
+        max_seconds, idle_seconds = runtime_limits(payload)
         monitor = JobTelemetry(job, VOLUME_ROOT, COMFY_URL, max_seconds, idle_seconds)
         monitor.stage('worker_received')
+        monitor.start_watchdog()
         _ensure_comfy_ready()
         inventory = runtime_inventory(COMFY_URL, VOLUME_ROOT)
         global SAMPLERS, SCHEDULERS
@@ -1009,9 +1020,14 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         if not unique:
             raise RuntimeError("The workflow completed but returned no output files.")
         job_id = str(job.get("id") or prompt_id)
-        files = [_deliver(path, payload, job_id, index) for index, path in enumerate(unique)]
+        files = []
+        for index, path in enumerate(unique):
+            monitor.check()
+            files.append(_deliver(path, payload, job_id, index))
+        monitor.check()
         monitor.stage('completed', files=[{'filename': f['filename'], 'size': f['size']} for f in files])
-        return {"files": files, "metadata": metadata, "prompt_id": prompt_id}
+        return {"files": files, "metadata": metadata, "prompt_id": prompt_id,
+                'refresh_worker': time.monotonic() - _WORKER_STARTED >= WORKER_MAX_SECONDS - 60}
     except InputError as exc:
         if monitor:
             monitor.stage('invalid_input', error=str(exc)[:2000])
@@ -1038,4 +1054,8 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
+    # Covers a warm worker between requests as well as an unresponsive handler.
+    lifetime = threading.Timer(WORKER_MAX_SECONDS + 40, os._exit, args=(1,))
+    lifetime.daemon = True
+    lifetime.start()
     runpod.serverless.start({"handler": handler})

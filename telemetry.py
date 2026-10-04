@@ -29,7 +29,7 @@ def fatal_comfy_error(text):
 
 
 class JobTelemetry:
-    def __init__(self, job, root, comfy_url, max_seconds=14400, idle_seconds=1800):
+    def __init__(self, job, root, comfy_url, max_seconds=5400, idle_seconds=900):
         self.job = job
         self.root = Path(root)
         self.comfy_url = comfy_url
@@ -49,13 +49,19 @@ class JobTelemetry:
         self.stop_event = threading.Event()
         self.ws = None
         self.last_publish = 0
+        self.last_progress_publish = float('-inf')
+        self.last_progress_signature = None
+        self.watchdog_thread = None
+        self.deadline_error = None
         self.error = None
         self.thread = None
         self.node_names = {}
 
     def stage(self, name, **fields):
         with self.lock:
-            self.last_activity = time.monotonic()
+            changed = name != self.state.get('stage') or any(self.state.get(k) != v for k, v in fields.items())
+            if changed:
+                self.last_activity = time.monotonic()
             self.state.update(stage=name, **fields)
             if name != 'sampling':
                 self.state.pop('step', None)
@@ -109,7 +115,10 @@ class JobTelemetry:
             if lines:
                 with self.lock:
                     self.state['logs'] = (self.state.get('logs', []) + lines)[-100:]
-                    self.last_activity = time.monotonic()
+                    # HTTP polls and repeating log messages are not execution progress.
+                    # When websocket events are unavailable, accept loading and actual steps.
+                    if not self.ws and any(re.search(r'\d+%.*\d+/\d+|Requested to load|Model .*prepared|Prompt executed', line) for line in lines):
+                        self.last_activity = time.monotonic()
                     if is_oom('\n'.join(lines)):
                         self.error = 'ComfyUI reported an out-of-memory error'
                         self.state.update(oom=True, error=self.error)
@@ -149,7 +158,7 @@ class JobTelemetry:
 
     def _publish(self, force=False):
         now = time.monotonic()
-        if not force and now - self.last_publish < 5:
+        if not force and now - self.last_publish < 15:
             return
         self.last_publish = now
         with self.lock:
@@ -164,7 +173,13 @@ class JobTelemetry:
             temp.replace(self.path)
         except OSError as exc:
             print('H3 diagnostics write failed: ' + redact(exc), flush=True)
-        compact = {k: v for k, v in snapshot.items() if k not in ('logs', 'events', 'models', 'capabilities')}
+        compact = {k: v for k, v in snapshot.items() if k not in ('logs', 'events', 'models', 'capabilities', 'metadata')}
+        signature = tuple(compact.get(k) for k in ('stage', 'node', 'step', 'total_steps', 'error'))
+        terminal = compact.get('stage') in ('completed', 'failed', 'error', 'invalid_input', 'diagnostics_complete', 'watchdog_expired')
+        if not terminal and now - self.last_progress_publish < 60 and (signature == self.last_progress_signature or now - self.last_progress_publish < 5):
+            return
+        self.last_progress_publish = now
+        self.last_progress_signature = signature
         print('H3_PROGRESS ' + json.dumps(compact), flush=True)
         # RunPod displays this in its status response and Console job view.
         try:
@@ -174,13 +189,38 @@ class JobTelemetry:
             pass  # Volume snapshot and stdout remain available if the API is unavailable.
 
     def check(self):
+        if self.deadline_error:
+            raise TimeoutError(self.deadline_error)
         if self.error:
             raise RuntimeError(self.error)
         now = time.monotonic()
         if now - self.started >= self.max_seconds:
             raise TimeoutError(f'H3 maximum runtime reached ({self.max_seconds}s)')
         if now - self.last_activity >= self.idle_seconds:
-            raise TimeoutError(f'ComfyUI produced no progress or log activity for {self.idle_seconds}s')
+            raise TimeoutError(f'ComfyUI produced no progress for {self.idle_seconds}s')
+
+    def start_watchdog(self):
+        # Separate from websocket/API I/O: blocked downloads or exports also have a deadline.
+        self.watchdog_thread = threading.Thread(target=self._watchdog, daemon=True)
+        self.watchdog_thread.start()
+
+    def _watchdog(self):
+        while not self.stop_event.wait(5):
+            try:
+                self.check()
+            except TimeoutError as exc:
+                self.deadline_error = str(exc)
+                self.stage('watchdog_expired', error=str(exc), refresh_worker=True)
+                try:
+                    requests.post(self.comfy_url + '/interrupt', timeout=5)
+                except Exception:
+                    pass
+                # Give handler cleanup/result reporting a chance; exit even if its I/O is stuck.
+                if not self.stop_event.wait(30):
+                    os._exit(1)
+                return
+            except RuntimeError:
+                pass  # Handler reports fatal execution errors and requests SDK worker refresh.
 
     def close(self):
         self.stop_event.set()

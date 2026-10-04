@@ -227,12 +227,20 @@ python examples/client.py examples/fl2v_request.json
 | `ATTENTION_MODE` | `auto` | `auto`, `sage`, or `native` |
 | `TEXT_ENCODER_FILE` | automatic | Override the text encoder filename |
 | `COMFY_ARGS` | empty | Extra ComfyUI launch flags |
-| `JOB_TIMEOUT_SECONDS` | `3600` | Per-job ComfyUI wait timeout |
+| `H3_MAX_RUNTIME_SECONDS` | `5400` | Maximum job wall-clock seconds; requests and environment cannot exceed 5400 |
+| `H3_IDLE_TIMEOUT_SECONDS` | `900` | Seconds without substantive execution progress; hard cap 900 |
+| `JOB_TIMEOUT_SECONDS` | `3600` | Legacy history wait when called without job telemetry |
 | `MAX_ASSET_MB` | `250` | Maximum downloaded/decoded input asset size |
 | `MAX_RETURN_BASE64_MB` | `6` | Maximum inline output size; keeps base64 results below RunPod's 10 MB async payload limit |
 | `OUTPUT_VOLUME_DIR` | unset | Persistent output folder fallback |
 
 `attention: auto` selects Sage only when CUDA capability and the compiled module are available. Setting `native` rewires FBCache directly after the Turbo LoRA, so the same image can safely run on a card where Sage is undesirable.
+
+H3 workers have a two-hour handler-process lifetime. Each job is limited by the remaining worker lifetime and its 90-minute maximum. A watchdog runs independently of websocket, download and export I/O, interrupts expired work and exits after a 30-second cleanup grace if the handler remains blocked. Normal timeout/error handling returns `refresh_worker` to the RunPod SDK, which sends `stopPod`; a process-level timer also covers idle or blocked workers (40-second lifetime cleanup grace). New console submissions set provider execution timeout to at most 92 minutes and TTL to approximately three hours rather than 24 hours. Old queued requests retain their original provider policy but cannot bypass worker caps.
+
+Detailed diagnostics remain on the volume every 15 seconds. Provider/stdout progress sends compact stage/step changes, at most once per five seconds, and unchanged heartbeats once per minute. Repeated progress values and polling logs do not reset inactivity. Model metadata remains in durable diagnostics rather than being repeated in every progress line. For deployment, pause worker allocation (`workers.min=0`, `workers.max=0`) before rolling images to avoid paying for renders that restart during a rollout. Preserve request IDs and resume/retry through user-controlled actions after verifying the release.
+
+With separate Turbo disabled, manual latent-upscale refinement completes the first sampling schedule, passes its denoised output into learned upscale, then refines using a decreasing schedule beginning at sigma 0.45. Both console Prompt Book and H3 generation use the shared builder and target-resolution conditioning. Explicit remaining-sigma mode retains its split/tail behavior; separate-Turbo workflows retain their adapter schedules. This reduces the aggressive three-step restart at sigma 0.9035 in the imported workflow; a short neutral local test passed, but the intermittent long cloud case has not been reproduced conclusively.
 
 ComfyUI starts with `--disable-cuda-malloc` by default, including replacement processes. This uses PyTorch's native allocator after an observed cudaMallocAsync `free_impl` abort during H3 First Block Cache cleanup. Sage and First Block Cache remain available. An explicit allocator flag in `COMFY_ARGS` overrides this default. Fatal CUDA/process logs and exited ComfyUI processes fail the request promptly and request a worker refresh; ordinary busy HTTP timeouts remain retryable.
 

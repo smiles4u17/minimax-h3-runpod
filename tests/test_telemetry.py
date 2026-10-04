@@ -36,6 +36,40 @@ class TelemetryTests(unittest.TestCase):
         with self.assertRaisesRegex(TimeoutError,'no progress'):
             self.m.check()
 
+    def test_repeated_progress_and_poll_logs_do_not_extend_inactivity(self):
+        self.m.stage('sampling', step=1, total_steps=8)
+        self.now.return_value = 31
+        self.m.stage('sampling', step=1, total_steps=8)
+        self.m.log_path = Path(self.temp.name) / 'poll.log'
+        self.m.log_path.write_text('GET /history 200\nstatus update\n')
+        self.m._read_logs()
+        with self.assertRaisesRegex(TimeoutError, 'no progress'):
+            self.m.check()
+
+    def test_provider_heartbeat_is_once_per_minute_with_compact_payload(self):
+        import types
+        progress = mock.Mock()
+        self.m.state['metadata'] = {'large': 'details'}
+        with mock.patch.dict(sys.modules, {'runpod': types.SimpleNamespace(serverless=types.SimpleNamespace(progress_update=progress))}), mock.patch('builtins.print'):
+            for tick in (0, 15, 30, 45, 60):
+                self.now.return_value = tick
+                self.m._publish(force=True)
+            self.assertEqual(progress.call_count, 2)
+            self.assertNotIn('metadata', progress.call_args.args[1])
+            self.assertIn('metadata', json.loads(self.m.path.read_text()))
+
+    def test_blocked_handler_watchdog_interrupts_and_exits(self):
+        self.now.return_value = 121
+        self.m.stop_event = mock.Mock()
+        self.m.stop_event.wait.return_value = False
+        with mock.patch('telemetry.requests.post') as interrupt, mock.patch('telemetry.os._exit') as terminate:
+            self.m._watchdog()
+        interrupt.assert_called_once()
+        terminate.assert_called_once_with(1)
+        self.assertEqual(self.m.state['stage'], 'watchdog_expired')
+        with self.assertRaisesRegex(TimeoutError, 'maximum runtime'):
+            self.m.check()
+
     def test_activity_extends_idle_but_not_maximum(self):
         self.now.return_value=25
         self.m.stage('loading_model')

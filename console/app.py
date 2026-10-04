@@ -16,7 +16,7 @@ from h3_workflow_options import workflow_options, validate_keyframes, variant_de
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.05-h3-clean-refine"
+APP_VERSION = "web-v16.06-h3-runtime-guards"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -1866,8 +1866,8 @@ def submit(endpoint: str, key: str, payload: dict[str,Any], s: dict[str,Any]) ->
     try:
         request_policy = policy(s)
         if 'max_runtime_seconds' in payload:
-            seconds = int(payload['max_runtime_seconds']) + 120
-            request_policy = {'executionTimeout': seconds * 1000, 'ttl': max(seconds * 2, 86400) * 1000}
+            seconds = min(int(payload['max_runtime_seconds']), 5400) + 120
+            request_policy = {'executionTimeout': seconds * 1000, 'ttl': max(seconds * 2, seconds + 3600) * 1000}
         r=requests.post(f"https://api.runpod.ai/v2/{endpoint}/run", headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"}, json={"input":payload,"policy":request_policy}, timeout=120); r.raise_for_status(); return r.json()
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else None
@@ -5132,10 +5132,10 @@ async def run_h3(data: dict[str, Any]):
     # write the mounted volume and return its exact path for authenticated GET.
     payload["output_layout"] = "flat_outputs"
     try:
-        payload['max_runtime_seconds'] = int(data.get('max_runtime_seconds') or (s.get('h3') or {}).get('max_runtime_seconds') or 14400)
-        payload['idle_timeout_seconds'] = int(data.get('idle_timeout_seconds') or (s.get('h3') or {}).get('idle_timeout_seconds') or 1800)
-        if not 60 <= payload['idle_timeout_seconds'] <= payload['max_runtime_seconds'] <= 86400:
-            raise ValueError('Require 60 <= inactivity <= maximum runtime <= 86400 seconds')
+        payload['max_runtime_seconds'] = min(int(data.get('max_runtime_seconds') or (s.get('h3') or {}).get('max_runtime_seconds') or 5400), 5400)
+        payload['idle_timeout_seconds'] = min(int(data.get('idle_timeout_seconds') or (s.get('h3') or {}).get('idle_timeout_seconds') or 900), 900, payload['max_runtime_seconds'])
+        if not 60 <= payload['idle_timeout_seconds'] <= payload['max_runtime_seconds']:
+            raise ValueError('Require 60 <= inactivity <= maximum runtime; hard caps are 900/5400 seconds')
     except (ValueError, TypeError) as exc:
         raise HTTPException(400, f'Invalid H3 time limits: {exc}') from exc
 
