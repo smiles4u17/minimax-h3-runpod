@@ -24,6 +24,7 @@ import requests
 import runpod
 from h3_workflow_options import reference_frame_cap
 from telemetry import JobTelemetry, is_oom, runtime_inventory
+from output_naming import copy_flat_output
 
 
 COMFY_ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
@@ -954,11 +955,12 @@ def _deliver(path: Path, payload: dict[str, Any], job_id: str, index: int) -> di
         flat = payload.get("output_layout") == "flat_outputs"
         target_dir = FLAT_OUTPUT_DIR if flat else Path(volume_dir) / job_id
         target_dir.mkdir(parents=True, exist_ok=True)
-        # UUID suffix also prevents collisions if the same job is retried.
-        filename = f"{path.stem}_{uuid.uuid4().hex}{path.suffix}" if flat else path.name
-        target = target_dir / filename
-        shutil.copy2(path, target)
-        return {"filename": filename, "type": "volume_path", "data": str(target), "size": path.stat().st_size}
+        if flat:
+            target = copy_flat_output(path, target_dir)
+        else:
+            target = target_dir / path.name
+            shutil.copy2(path, target)
+        return {"filename": target.name, "type": "volume_path", "data": str(target), "size": path.stat().st_size}
     raise RuntimeError(
         f"Output {path.name} is too large for base64. Configure S3, OUTPUT_VOLUME_DIR, "
         "or provide output_upload_urls."

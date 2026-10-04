@@ -78,9 +78,14 @@ class VariantTests(unittest.TestCase):
                 self.assertTrue(all(a > b for a, b in zip(sigmas, sigmas[1:])))
                 self.assertEqual(meta['first_pass_steps'], 8)
                 self.assertEqual(meta['latent_refine_strategy'], 'clean_low_noise')
-                self.assertEqual(graph['9306']['inputs']['conditioning'], ['9305', 0])
-                self.assertEqual(graph['9305']['inputs']['width'], ['9302', 0])
-                self.assertEqual(graph['9305']['inputs']['height'], ['9302', 1])
+                if variant.startswith('ref2v'):
+                    self.assertEqual(graph['9306']['inputs']['conditioning'], ['136', 0])
+                    self.assertNotIn('9305', graph)
+                    self.assertTrue(meta['reference_encoding_reused'])
+                else:
+                    self.assertEqual(graph['9306']['inputs']['conditioning'], ['9305', 0])
+                    self.assertEqual(graph['9305']['inputs']['width'], ['9302', 0])
+                    self.assertEqual(graph['9305']['inputs']['height'], ['9302', 1])
 
     def test_explicit_remaining_schedule_keeps_its_split_without_turbo(self):
         graph, meta = self.build('ref2v_20260920', turbo_enabled=False, second_pass_sigma=4)
@@ -95,6 +100,8 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(graph['9322']['inputs']['images'], ['9321', 0])
         self.assertEqual(graph['9323']['inputs']['image'], ['122', 0])
         self.assertEqual(graph['9324']['inputs']['images'], ['9323', 0])
+        self.assertEqual(graph['9325']['inputs']['samples'], ['9304', 0])
+        self.assertEqual(graph['9327']['inputs']['images'], ['9326', 0])
         normal, _ = self.build('ref2v_20260920')
         self.assertNotIn('9320', normal)
         self.assertNotIn('9324', normal)

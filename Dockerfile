@@ -90,8 +90,9 @@ RUN python3.12 -m pip install --no-cache-dir \
       --constraint /opt/comfyui-runtime-constraints.txt \
       -r /opt/minimax-h3/requirements-handler.txt
 
-COPY handler.py telemetry.py workflow_variants.py h3_workflow_options.py h3_sampling.json start.sh extra_model_paths.yaml /opt/minimax-h3/
+COPY handler.py telemetry.py output_naming.py workflow_variants.py h3_workflow_options.py h3_sampling.json start.sh extra_model_paths.yaml /opt/minimax-h3/
 COPY scripts /opt/minimax-h3/scripts
+RUN python3.12 /opt/minimax-h3/scripts/patch_latent_upscaler.py
 COPY workflows /opt/minimax-h3/workflows
 COPY custom_nodes/samimate_h3 /comfyui/custom_nodes/samimate_h3
 COPY custom_nodes/h3_runtime /comfyui/custom_nodes/h3_runtime

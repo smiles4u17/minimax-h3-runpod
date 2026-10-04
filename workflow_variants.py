@@ -62,13 +62,20 @@ def apply_variant(graph, payload, materialize, model_name):
             mode='target dimensions', **{'mode.width':['9302',0], 'mode.height':['9302',1]},
             align=32, enable_temporal_chunking=True, force_unload=True, device='cuda', precision='bf16')
         add('9304', 'LTXVConcatAVLatent', video_latent=['9303',0], audio_latent=['9301',1])
-        graph['9305'] = copy.deepcopy(graph[conditioning])
-        graph['9305']['inputs'].update(width=['9302',0], height=['9302',1])
+        # Ref2V stores independent reference blocks, not target-shaped hints.
+        # Reuse their VAE/Qwen encoding. FL2V/keyframes have spatial masks and
+        # still need rebuilding at the refinement resolution.
+        reuse_references = graph[conditioning]['class_type'] == 'MiniMaxH3ReferenceToVideo'
+        second_conditioning = [conditioning, 0]
+        if not reuse_references:
+            graph['9305'] = copy.deepcopy(graph[conditioning])
+            graph['9305']['inputs'].update(width=['9302',0], height=['9302',1])
+            second_conditioning = ['9305', 0]
         # FirstBlockCache only belongs to pass one. Share all preceding LoRAs/attention.
         model = graph['126']['inputs']['model']
         if graph[model[0]]['class_type'] == 'MiniMaxH3FirstBlockCache':
             model = graph[model[0]]['inputs']['model']
-        add('9306', 'BasicGuider', model=model, conditioning=['9305',0])
+        add('9306', 'BasicGuider', model=model, conditioning=second_conditioning)
         mode = options['second_pass_sigma']
         schedules = REFINE_SIGMAS if clean_refine else SIGMAS
         second_sigmas = ['9300',1] if mode == 4 else add('9307','ManualSigmas',sigmas=schedules[mode])
@@ -77,6 +84,7 @@ def apply_variant(graph, payload, materialize, model_name):
         graph['121']['inputs']['samples'] = final_latent
         graph['122']['inputs']['samples'] = final_latent
         options.update(first_pass_steps=effective_split,
+                       reference_encoding_reused=reuse_references,
                        latent_refine_strategy='clean_low_noise' if clean_refine else 'split_schedule',
                        second_pass_sigmas=schedules.get(mode, 'remaining'))
     images = ['122',0]
@@ -98,6 +106,9 @@ def apply_variant(graph, payload, materialize, model_name):
             first_images = add('9320','VAEDecode',samples=['125',1],vae=graph['122']['inputs']['vae'])
             first_last = add('9321','ImageFromBatch',image=first_images,batch_index=-1,length=1)
             add('9322','SaveImage',images=first_last,filename_prefix='Diagnostic/H3_First_Pass')
+            learned_images = add('9325','VAEDecode',samples=['9304',0],vae=graph['122']['inputs']['vae'])
+            learned_last = add('9326','ImageFromBatch',image=learned_images,batch_index=-1,length=1)
+            add('9327','SaveImage',images=learned_last,filename_prefix='Diagnostic/H3_After_Learned_Upscale')
         pre_rtx_last = add('9323','ImageFromBatch',image=['122',0],batch_index=-1,length=1)
         add('9324','SaveImage',images=pre_rtx_last,filename_prefix='Diagnostic/H3_Pre_RTX')
     return options
