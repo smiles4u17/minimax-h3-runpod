@@ -11,7 +11,7 @@ def probe():
     sequence = 205000
     with torch.inference_mode():
         # Real H3 fused-buffer stride; only one head is quantized, so this check
-        # needs ~9 GB rather than running long-sequence attention or inference.
+        # needs ~9 GB rather than loading diffusion weights or generating media.
         fused = torch.zeros((1, sequence, 3, 56, 128), device='cuda', dtype=torch.bfloat16)
         q = fused[:,:,0,:1,:]
         k = fused[:,:,1,:1,:]
@@ -29,9 +29,16 @@ def probe():
         q_error = int(torch.count_nonzero(q_raw != q_fixed).item())
         v_error = int(torch.count_nonzero(v_raw.float() != v_fixed.float()).item())
         fixed_q_nonzero = bool(torch.all(q_fixed != 0).item())
-        fixed_v_nonzero = bool(torch.all(v_fixed[..., :sequence].float() != 0).item())
+        # Sage permutes each 16-position block, so padded zeroes can appear
+        # before the logical length. Count actual values across the padded axis.
+        fixed_v_nonzero = int(torch.count_nonzero(v_fixed.float()).item()) == v.numel()
+        result = safety._sageattn_int8_fp8_nhd([q,k,v], torch.bfloat16)
+        production_error = float((result.float() - 3).abs().max().item())
+        production_passed = bool(torch.isfinite(result).all().item()) and production_error < 0.125
         return {'gpu':torch.cuda.get_device_name(0),'sequence':sequence,'shape':list(v.shape),'stride':list(v.stride()),
                 'max_relative_offset':sum((n-1)*s for n,s in zip(v.shape,v.stride())),
                 'unsafe_q_mismatched_elements':q_error,'unsafe_v_mismatched_elements':v_error,
                 'safe_q_all_nonzero':fixed_q_nonzero,'safe_v_all_nonzero':fixed_v_nonzero,
-                'passed':fixed_q_nonzero and fixed_v_nonzero}
+                'production_max_absolute_error':production_error,
+                'production_passed':production_passed,
+                'passed':fixed_q_nonzero and fixed_v_nonzero and production_passed}
