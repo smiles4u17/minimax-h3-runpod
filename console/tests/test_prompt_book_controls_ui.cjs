@@ -65,6 +65,9 @@ vm.runInContext(source, context);
   assert.equal(generation.steps, 20);
   assert.equal(generation.pass1_split, 20, 'Manual refine finishes the first pass');
   assert.equal(generation.second_pass_sigma, 5);
+  assert.equal(generation.reference_resolution, 'generation');
+  values.pb_reference_resolution = 'original';
+  assert.equal(vm.runInContext('pbGenerationSettings()', context).reference_resolution, 'original');
   assert.equal(generation.seed, 42);
   values.pb_second_pass_sigma = '4';
   assert.equal(vm.runInContext('pbGenerationSettings()', context).pass1_split, 14,
@@ -80,6 +83,7 @@ vm.runInContext(source, context);
   assert.equal(sent.duration, 2, 'Submission must read the visible trim rather than stale duration');
   assert.equal(sent.trim_start, '145');
   assert.equal(sent.trim_end, '147');
+  assert.equal(sent.reference_resolution, 'original');
   values.pb_video_end = '145';
   sent = null;
   await assert.rejects(vm.runInContext('runPromptBook()', context), /Trim end must be after/);
