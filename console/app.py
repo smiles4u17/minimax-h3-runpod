@@ -1867,7 +1867,9 @@ def submit(endpoint: str, key: str, payload: dict[str,Any], s: dict[str,Any]) ->
         request_policy = policy(s)
         if 'max_runtime_seconds' in payload:
             seconds = min(int(payload['max_runtime_seconds']), 5400) + 120
-            request_policy = {'executionTimeout': seconds * 1000, 'ttl': max(seconds * 2, seconds + 3600) * 1000}
+            # Queue lifetime includes waiting time; keep batches recoverable for a day.
+            # Execution and worker lifetime limits still bound paid processing.
+            request_policy = {'executionTimeout': seconds * 1000, 'ttl': max(86400, seconds * 2, seconds + 3600) * 1000}
         r=requests.post(f"https://api.runpod.ai/v2/{endpoint}/run", headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"}, json={"input":payload,"policy":request_policy}, timeout=120); r.raise_for_status(); return r.json()
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else None

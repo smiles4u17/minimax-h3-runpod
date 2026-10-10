@@ -102,7 +102,7 @@ class MonitorTests(unittest.TestCase):
             app.submit('endpoint','key',{'max_runtime_seconds':14400},{'timeout_seconds':3600})
             policy=post.call_args.kwargs['json']['policy']
             self.assertEqual(policy['executionTimeout'],5520000)
-            self.assertEqual(policy['ttl'],11040000)
+            self.assertEqual(policy['ttl'],86400000)
 
     def test_full_sampler_catalog_is_available(self):
         self.assertEqual(len(app.h3_sampling_options()['samplers']),46)
