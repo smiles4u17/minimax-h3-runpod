@@ -31,8 +31,11 @@ def apply_variant(graph, payload, materialize, model_name):
     if graph[conditioning]['class_type'] == 'MiniMaxH3ReferenceToVideo' and options['reference_resolution'] == 'generation':
         for index, (name, source) in enumerate(list(graph[conditioning]['inputs'].items())):
             if name.startswith('ref_videos.'):
-                graph[conditioning]['inputs'][name] = add(str(9450+index), 'H3ReferenceVideoScale', images=source,
-                    width=graph[conditioning]['inputs']['width'], height=graph[conditioning]['inputs']['height'])
+                graph[conditioning]['inputs'][name] = add(str(9450+index), 'ImageResizeKJv2', image=source,
+                    width=graph[conditioning]['inputs']['width'], height=graph[conditioning]['inputs']['height'],
+                    upscale_method='nearest-exact', keep_proportion='crop', pad_color='0,0,0',
+                    crop_position='center', divisible_by=2, device='cpu')
+        options['reference_resize'] = 'kjv2_nearest_exact_center_crop_cpu'
     if multi:
         if payload.get('reference_videos') or payload.get('reference_audios') or payload.get('audio'):
             raise ValueError('Percentage keyframes cannot be combined with video/audio references; disable Use Multi IMG')

@@ -1,6 +1,4 @@
-import torch
-import torch.nn.functional as F
-from .reference_geometry import reference_size
+import nodes
 
 
 class H3ReferenceVideoScale:
@@ -12,13 +10,11 @@ class H3ReferenceVideoScale:
     CATEGORY = 'video/minimax'
 
     def scale(self, images, width, height):
+        # Compatibility for saved custom graphs using the previous helper.
+        # Use the same pinned KJ node/settings as newly assembled preset graphs.
         h, w = images.shape[1:3]
-        tw, th = reference_size(w, h, width * height)
-        if (w, h) == (tw, th):
-            return (images,)
-        parts = []
-        # Bound the resize workspace instead of expanding all video frames at once.
-        for batch in images.split(8):
-            parts.append(F.interpolate(batch.movedim(-1,1), size=(th,tw), mode='bilinear', align_corners=False, antialias=True).movedim(1,-1))
-        print(f'H3_REFERENCE_RESIZE {w}x{h} -> {tw}x{th}; frames={len(images)}')
-        return (torch.cat(parts),)
+        result = nodes.NODE_CLASS_MAPPINGS['ImageResizeKJv2']().resize(
+            images, width, height, keep_proportion='crop', upscale_method='nearest-exact',
+            divisible_by=2, pad_color='0,0,0', crop_position='center', unique_id=None, device='cpu')
+        print(f'H3_REFERENCE_RESIZE {w}x{h} -> {result[1]}x{result[2]}; frames={len(images)}; nearest-exact center crop cpu')
+        return (result[0],)

@@ -109,9 +109,13 @@ class VariantTests(unittest.TestCase):
     def test_reference_video_resize_preserves_audio_and_can_be_disabled(self):
         graph, _ = self.build('ref2v_20260920', reference_videos=[asset('clip.mp4')])
         source = graph['136']['inputs']['ref_videos.ref_video_0']
-        self.assertEqual(graph[source[0]]['class_type'], 'H3ReferenceVideoScale')
-        self.assertEqual(graph[source[0]]['inputs']['images'], ['8200', 0])
+        self.assertEqual(graph[source[0]]['class_type'], 'ImageResizeKJv2')
+        self.assertEqual(graph[source[0]]['inputs']['image'], ['8200', 0])
         self.assertEqual(graph[source[0]]['inputs']['width'], ['115', 0])
+        self.assertEqual(graph[source[0]]['inputs']['height'], ['115', 1])
+        for key, value in dict(upscale_method='nearest-exact', keep_proportion='crop', pad_color='0,0,0',
+                              crop_position='center', divisible_by=2, device='cpu').items():
+            self.assertEqual(graph[source[0]]['inputs'][key], value)
         self.assertEqual(graph['136']['inputs']['ref_video_audios.ref_video_audio_0'], ['8200', 2])
         original, _ = self.build('ref2v_20260920', reference_videos=[asset('clip.mp4')], reference_resolution='original')
         self.assertEqual(original['136']['inputs']['ref_videos.ref_video_0'], ['8200', 0])
