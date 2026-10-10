@@ -2,7 +2,7 @@ let PB = {catalog: null, subject: '', subjectB: '', video: '', subjectFolder: ''
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
 const PB_GENERATION_STORE = 'prompt-book-h3-generation-v1';
 const PB_DEFAULT_MODEL = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors';
-const PB_GENERATION_FIELDS = ['model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'cache_enabled', 'cache_threshold', 'reference_resolution'];
+const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'cache_enabled', 'cache_threshold', 'reference_resolution'];
 
 function pbEsc(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -381,6 +381,7 @@ function pbUpdateGenerationControls() {
 function pbRestoreGeneration() {
   try {
     const saved = JSON.parse(localStorage.getItem(PB_GENERATION_STORE) || '{}');
+    PB.aspectTouched = saved.aspect_explicit === true;
     for (const name of PB_GENERATION_FIELDS) {
       const element = $('pb_' + name);
       if (!element || !Object.hasOwn(saved, name)) continue;
@@ -398,7 +399,7 @@ function pbRestoreGeneration() {
 }
 
 function pbSaveGeneration() {
-  const saved = {};
+  const saved = {aspect_explicit: PB.aspectTouched};
   for (const name of PB_GENERATION_FIELDS) {
     const element = $('pb_' + name);
     if (element) saved[name] = element.type === 'checkbox' ? element.checked : element.value;
@@ -505,7 +506,10 @@ function bindPromptBook() {
   pbRestoreGeneration();
   for (const name of PB_GENERATION_FIELDS) {
     const element = $('pb_' + name);
-    element?.addEventListener('change', pbSaveGeneration);
+    element?.addEventListener('change', () => {
+      if (name === 'aspect_ratio') PB.aspectTouched = true;
+      pbSaveGeneration();
+    });
     if (element?.type === 'number') element.addEventListener('input', pbUpdateGenerationControls);
   }
   pbUpdateGenerationControls();

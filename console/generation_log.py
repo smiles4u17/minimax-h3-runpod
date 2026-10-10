@@ -23,7 +23,7 @@ class SubmissionLog:
         directory.mkdir(parents=True, exist_ok=True)
         self.created = datetime.now(timezone.utc).isoformat()
         self.endpoint = endpoint
-        self.generation = {k: body['input'][k] for k in ('task', 'filename_prefix', 'seed', 'duration', 'prompt', 'model', 'steps', 'megapixels') if k in body['input']}
+        self.generation = {k: body['input'][k] for k in ('task', 'filename_prefix', 'seed', 'duration', 'prompt', 'model', 'steps', 'megapixels', 'aspect_ratio', 'sampler', 'latent_upscale', 'rtx_upscale') if k in body['input']}
         name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ') + '_' + uuid.uuid4().hex
         self.text_path = directory / (name + '.txt')
         self.receipt_path = directory / (name + '_receipt.json')

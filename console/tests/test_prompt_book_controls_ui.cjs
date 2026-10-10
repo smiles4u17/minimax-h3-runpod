@@ -24,6 +24,7 @@ function select(initial) {
 const elements = {
   pb_sampler: select('euler'), pb_scheduler: select('simple'),
   pb_model: select('10Eros_Max_h3_TURBO-hybrid_beta5.safetensors'),
+  pb_aspect_ratio: select('9:16 (Portrait Widescreen)'),
   pb_h3_settings_summary: {textContent: ''},
 };
 const values = {
@@ -34,6 +35,7 @@ const values = {
 };
 const checked = {pb_latent_upscale: true, pb_seed_random: false};
 const context = {
+  localStorage: {getItem(){return this.saved||null},setItem(key,value){this.saved=value}},
   document: {readyState: 'loading', addEventListener() {}},
   $: id => elements[id] || (id in checked ? {checked: checked[id]} : undefined),
   val: id => values[id] ?? elements[id]?.value ?? '',
@@ -51,6 +53,11 @@ vm.createContext(context);
 vm.runInContext(source, context);
 
 (async () => {
+  vm.runInContext('PB.aspectTouched=true; pbSaveGeneration()', context);
+  elements.pb_aspect_ratio.value='16:9 (Widescreen)';
+  vm.runInContext('PB.aspectTouched=false; pbRestoreGeneration()', context);
+  assert.equal(elements.pb_aspect_ratio.value,'9:16 (Portrait Widescreen)');
+  assert.equal(vm.runInContext('PB.aspectTouched',context),true,'Explicit ratio stays locked after reload');
   await vm.runInContext('pbLoadGenerationOptions()', context);
   assert.deepEqual(elements.pb_sampler.options.map(option => option.value),
     catalog.samplers.filter(name => name !== 'h3_turbo'));

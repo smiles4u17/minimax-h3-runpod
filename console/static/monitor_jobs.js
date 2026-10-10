@@ -21,7 +21,7 @@
         summary.textContent='Prompt: '+String(job.prompt).replace(/\s+/g,' ').slice(0,160)+(String(job.prompt).length>160?'…':'');
         full.textContent=job.prompt;prompt.append(summary,full);details.appendChild(prompt);
       }else{const unavailable=document.createElement('small');unavailable.textContent='Prompt not saved for this older request';details.appendChild(unavailable)}
-      const settings=document.createElement('small');settings.textContent=[job.model,job.steps!=null?job.steps+' steps':'',job.megapixels!=null?job.megapixels+' MP':''].filter(Boolean).join(' · ');if(settings.textContent)details.appendChild(settings);
+      const settings=document.createElement('small');settings.textContent=[job.aspect_ratio,job.sampler,job.model,job.steps!=null?job.steps+' steps':'',job.megapixels!=null?job.megapixels+' MP':'',job.latent_upscale===false?'Latent upscale off':'',job.rtx_upscale===false?'RTX upscale off':''].filter(Boolean).join(' · ');if(settings.textContent)details.appendChild(settings);
       if(errors.has(id)){const error=document.createElement('small');error.setAttribute('role','alert');error.textContent='Cancel failed: '+errors.get(id);details.appendChild(error)}
       const state=document.createElement('span');state.className='monitorRequestState';
       state.textContent=pending.has(id)?'Cancelling…':requested.has(id)?'Cancellation requested':(job.status||'UNKNOWN').replaceAll('_',' ');
