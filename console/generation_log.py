@@ -22,6 +22,8 @@ class SubmissionLog:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         self.created = datetime.now(timezone.utc).isoformat()
+        self.endpoint = endpoint
+        self.generation = {k: body['input'][k] for k in ('task', 'filename_prefix', 'seed', 'duration', 'prompt', 'model', 'steps', 'megapixels') if k in body['input']}
         name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ') + '_' + uuid.uuid4().hex
         self.text_path = directory / (name + '.txt')
         self.receipt_path = directory / (name + '_receipt.json')
@@ -36,7 +38,8 @@ class SubmissionLog:
 
     def record(self, status, job=None, error=None):
         receipt = {'created_at': self.created, 'updated_at': datetime.now(timezone.utc).isoformat(),
-                   'status': status, 'job': job, 'error': error}
+                   'status': status, 'job': job, 'error': error,
+                   'endpoint_id': self.endpoint, 'generation': self.generation}
         self.receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')
         self.text_path.write_text(f'Status: {status}\nJob ID: {(job or {}).get("id", "")}\n'
                                   + (f'Error: {error}\n' if error else '') + self.header, encoding='utf-8')

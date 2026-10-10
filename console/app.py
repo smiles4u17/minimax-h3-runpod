@@ -13,11 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from output_sync import OutputSync
 from generation_log import SubmissionLog
+from job_list import sent_requests, merge_live_requests, sorted_requests
 from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults, reference_frame_cap
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.07-h3-cloud-workflow"
+APP_VERSION = "web-v16.09-run-monitor-job-list"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -2877,6 +2878,50 @@ def delete_endpoint_profile(name: str):
 @app.get("/api/jobs/history")
 def get_job_history():
     return {"items": load_json(JOB_HISTORY_PATH, [])}
+
+JOB_REQUEST_CACHE = {}
+JOB_REQUEST_LOCK = threading.Lock()
+
+
+@app.get('/api/jobs/requests')
+def get_sent_requests(force: bool = False):
+    from concurrent.futures import ThreadPoolExecutor
+    s = settings()
+    if not s.get('runpod_api_key'):
+        raise HTTPException(400, 'RunPod key missing')
+    with JOB_REQUEST_LOCK:
+        fingerprint = hashlib.sha256(s['runpod_api_key'].encode()).hexdigest()
+        configured = {s.get(k) for k in ('h3_endpoint_id', 'wan_endpoint_id', 'infinite_endpoint_id')} - {None, ''}
+        cache_key = (fingerprint, tuple(sorted(configured)))
+        if not force and JOB_REQUEST_CACHE.get('key') == cache_key and time.monotonic() - JOB_REQUEST_CACHE.get('checked', 0) < 10:
+            return JOB_REQUEST_CACHE['result']
+        rows = sent_requests(load_json(JOB_HISTORY_PATH, []), GENERATION_LOG_DIR)
+        endpoints = configured | {endpoint for endpoint, _ in rows}
+        def read(endpoint):
+            try:
+                runpod_safe_id(endpoint)
+                response = requests.get(f'https://api.runpod.ai/v2/{endpoint}/requests',
+                                        headers={'Authorization': 'Bearer ' + s['runpod_api_key']}, timeout=8)
+                response.raise_for_status()
+                records = response.json().get('requests') or []
+                if not isinstance(records, list):
+                    raise ValueError('Invalid provider request list')
+                return endpoint, records, None
+            except (requests.RequestException, ValueError) as exc:
+                return endpoint, None, f'{endpoint}: request status unavailable ({exc})'
+        warnings = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for endpoint, records, error in pool.map(read, sorted(endpoints)):
+                if error:
+                    warnings.append(error)
+                else:
+                    merge_live_requests(rows, records, endpoint)
+        items = sorted_requests(rows)
+        for item in items:
+            item['can_cancel'] = item.get('live') is True and item.get('status') in ('IN_QUEUE', 'IN_PROGRESS')
+        result = {'items': items, 'warnings': warnings}
+        JOB_REQUEST_CACHE.update(key=cache_key, checked=time.monotonic(), result=result)
+        return result
 @app.post("/api/validate/{tab}")
 async def validate_tab(tab: str, data: dict[str, Any]):
     return validation_result(tab, data)
@@ -5227,6 +5272,7 @@ def monitor_settings(endpoint_id):
     s = settings()
     allowed = {s.get(k) for k in ('h3_endpoint_id', 'wan_endpoint_id', 'infinite_endpoint_id')}
     allowed.update(x.get('endpoint_id') for x in load_json(JOB_HISTORY_PATH, []))
+    allowed.update(endpoint for endpoint, _ in sent_requests([], GENERATION_LOG_DIR))
     if endpoint_id not in allowed:
         raise HTTPException(400, 'Select a configured endpoint or a recorded job')
     if not s.get('runpod_api_key'):
