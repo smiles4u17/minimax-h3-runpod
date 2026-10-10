@@ -14,7 +14,7 @@ class GenerationLogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             payload = {'prompt': 'A quiet landscape.', 'seed': 123,
-                       'reference_videos': [{'base64': 'c29tZW1lZGlh'}]}
+                       'reference_videos': [{'name': 'clip.mp4', 'data': 'c29tZW1lZGlh'}]}
             source_token = app.SUBMISSION_SOURCE.set({'reference_video_paths': ['D:/clip.mp4']})
             def send(*args, **kwargs):
                 saved = list(root.glob('*_request.json'))

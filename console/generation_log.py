@@ -7,7 +7,9 @@ from pathlib import Path
 
 def readable(value, key=''):
     if isinstance(value, dict):
-        return {k: readable(v, k) for k, v in value.items()}
+        return {k: (f'[inline media: {len(v)} characters; retained in request JSON]'
+                    if k == 'data' and (value.get('type') == 'base64' or 'name' in value) and isinstance(v, str)
+                    else readable(v, k)) for k, v in value.items()}
     if isinstance(value, list):
         return [readable(v, key) for v in value]
     if isinstance(value, str) and (key == 'base64' or key.endswith('_base64')):
