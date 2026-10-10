@@ -98,7 +98,7 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(record.call_args.args[0]['worker_id'],'worker')
 
     def test_h3_budget_reaches_runpod_policy(self):
-        with mock.patch.object(app.requests,'post') as post:
+        with mock.patch.object(app.requests,'post') as post, mock.patch.object(app, 'SubmissionLog'):
             app.submit('endpoint','key',{'max_runtime_seconds':14400},{'timeout_seconds':3600})
             policy=post.call_args.kwargs['json']['policy']
             self.assertEqual(policy['executionTimeout'],5520000)

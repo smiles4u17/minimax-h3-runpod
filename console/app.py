@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from output_sync import OutputSync
+from generation_log import SubmissionLog
 from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults, reference_frame_cap
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
@@ -26,6 +27,8 @@ H3_INLINE_FILE_LIMIT_BYTES = 6 * 1024 * 1024
 H3_INLINE_BODY_BUDGET_BYTES = int(7.5 * 1024 * 1024)
 APP_NAME = "RunPod Media Console Web"
 APP_DIR = Path(__file__).parent
+GENERATION_LOG_DIR = APP_DIR / 'generation_logs'
+SUBMISSION_SOURCE = ContextVar('submission_source', default=None)
 HOME = Path.home()
 DATA_DIR = HOME / ".runpod_media_console_web"
 DEFAULT_OUTPUT_DIR = APP_DIR / "outputs"
@@ -1863,6 +1866,7 @@ def policy(s: dict[str,Any]) -> dict[str,int]:
     secs=max(float(s.get("timeout_seconds") or 3600),900.0); ttl=max(secs*2, secs+3600); return {"executionTimeout":int(secs*1000),"ttl":int(ttl*1000)}
 
 def submit(endpoint: str, key: str, payload: dict[str,Any], s: dict[str,Any]) -> dict[str,Any]:
+    submission_log = None
     try:
         request_policy = policy(s)
         if 'max_runtime_seconds' in payload:
@@ -1870,8 +1874,19 @@ def submit(endpoint: str, key: str, payload: dict[str,Any], s: dict[str,Any]) ->
             # Queue lifetime includes waiting time; keep batches recoverable for a day.
             # Execution and worker lifetime limits still bound paid processing.
             request_policy = {'executionTimeout': seconds * 1000, 'ttl': max(86400, seconds * 2, seconds + 3600) * 1000}
-        r=requests.post(f"https://api.runpod.ai/v2/{endpoint}/run", headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"}, json={"input":payload,"policy":request_policy}, timeout=120); r.raise_for_status(); return r.json()
+        body = {'input': payload, 'policy': request_policy}
+        try:
+            submission_log = SubmissionLog(GENERATION_LOG_DIR, endpoint, body, SUBMISSION_SOURCE.get())
+        except OSError as e:
+            raise HTTPException(507, f'Generation was not submitted because its recovery log could not be saved: {e}') from e
+        r=requests.post(f"https://api.runpod.ai/v2/{endpoint}/run", headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"}, json=body, timeout=120)
+        r.raise_for_status()
+        job = r.json()
+        submission_log.finish('SUBMITTED', job=job)
+        return job
     except requests.HTTPError as e:
+        if submission_log:
+            submission_log.finish('SUBMIT_FAILED', error=str(e))
         code = e.response.status_code if e.response is not None else None
         body = ""
         if e.response is not None:
@@ -1888,6 +1903,8 @@ def submit(endpoint: str, key: str, payload: dict[str,Any], s: dict[str,Any]) ->
             detail += f" | response: {body}"
         raise HTTPException(502, detail) from e
     except requests.RequestException as e:
+        if submission_log:
+            submission_log.finish('SUBMIT_UNCONFIRMED', error=str(e))
         raise HTTPException(502, f"RunPod submit failed: {e}") from e
 
 def status(endpoint: str, key: str, job_id: str) -> dict[str,Any]:
@@ -5185,11 +5202,17 @@ async def run_h3(data: dict[str, Any]):
     }
     if H3_PREVIEW.get():
         return {"endpoint_id": endpoint, "payload": payload, "debug": debug}
+    source_token = SUBMISSION_SOURCE.set({k: data[k] for k in (
+        'first_frame_path', 'last_frame_path', 'reference_paths', 'reference_video_paths',
+        'reference_audio_paths', 'audio_path', 'video_path', 'image_path', 'source_workflow'
+    ) if k in data})
     try:
         job = submit(endpoint, key, payload, s)
     except HTTPException as e:
         record_job_event({"target": "h3", "endpoint_id": endpoint, "job_id": None, "status": "SUBMIT_FAILED", "payload_keys": sorted(payload.keys()), "debug": debug, "error": e.detail})
         raise HTTPException(e.status_code, {"message": e.detail, "debug": debug, "payload_keys": sorted(payload.keys())}) from e
+    finally:
+        SUBMISSION_SOURCE.reset(source_token)
     record_job_event({"target": "h3", "endpoint_id": endpoint, "job_id": job.get("id"), "status": "SUBMITTED", "payload_keys": sorted(payload.keys()), "debug": debug})
     return {"job": job, "endpoint_id": endpoint, "payload_keys": sorted(payload.keys()), "debug": debug, "payload": payload_for_inspector(payload)}
 

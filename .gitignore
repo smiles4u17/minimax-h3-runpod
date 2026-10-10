@@ -5,3 +5,4 @@ __pycache__/
 .env.*
 console/cache/
 console/outputs/
+generation_logs/
