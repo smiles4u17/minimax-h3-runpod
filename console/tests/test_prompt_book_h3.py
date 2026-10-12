@@ -353,7 +353,8 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertFalse(captured["turbo_enabled"])
         self.assertEqual(captured["sampler"], "euler")
         self.assertFalse(captured["latent_upscale"])
-        self.assertEqual(len(captured["references"]), 2)
+        self.assertEqual(len([p for p in captured["photos"] if p]), 2)
+        self.assertNotIn("references", captured)
         self.assertEqual(len(captured["reference_videos"]), 1)
         self.assertEqual(captured["loras"], [{"name": "H3/creative.safetensors", "strength": 0.75}])
         self.assertFalse(captured["rtx_upscale"])
@@ -432,6 +433,7 @@ class PromptBookH3Tests(unittest.TestCase):
             mock.patch.object(prompt_book_h3, "video_has_audio", return_value=False),
             mock.patch.object(media_console, "submit", side_effect=fake_submit),
             mock.patch.object(media_console, "h3_asset_payload", return_value={"volume_path": "/runpod-volume/input/mock"}),
+            mock.patch.object(media_console, "h3_prepare_reference_clip", side_effect=lambda path, opts: (path, opts, {})),
             mock.patch.object(media_console, "record_job_event"),
         ):
             normal = self.client.post("/api/run/h3", json=main)

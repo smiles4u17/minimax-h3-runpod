@@ -23,8 +23,8 @@ function bindH3PhotoDrop(card,upload){
     <label><input type="checkbox" role="switch" id="h3_no_turbo"> No Turbo</label>
     <label>FINAL SIZE (MP)<input id="h3_final_megapixels" type="number" min="0.2" max="2" step="0.1" value="1"></label>
     <label>Reference video detail<select id="h3_reference_resolution"><option value="generation">Match first-pass size (faster)</option><option value="original">Original detail (slower)</option></select></label>
-    <label>First-pass sigma split<input id="h3_pass1_split" type="number" min="1" value="3"></label>
-    <label>Second-pass sigmas<select id="h3_second_pass_sigma"><option value="1">1 — 3 steps</option><option value="2" selected>2 — 4 steps</option><option value="3">3 — 5 steps</option><option value="4">4 — remaining first-pass sigmas</option></select></label>
+    <label title="Editing the split selects remaining sigmas so both passes use this split.">First-pass sigma split<input id="h3_pass1_split" type="number" min="1" step="1" value="3"></label>
+    <label>Second-pass sigmas<select id="h3_second_pass_sigma"><option value="1">1 — 3 refine steps</option><option value="2" selected>2 — 4 refine steps</option><option value="3">3 — 5 refine steps</option><option value="4">4 — remaining first-pass sigmas</option><option value="5">5 — 8 refine steps</option></select></label>
     <label>Latent upscale model<input id="h3_latent_upscale_model" value="minimax_h3_latent_upscaler_3d_bf16.safetensors"></label>
     </fieldset>`;
   models.querySelector('.h3SectionBody').prepend(panel);
@@ -66,12 +66,13 @@ function bindH3PhotoDrop(card,upload){
     $('h3_sampler').disabled=chk('h3_turbo_enabled')&&chk('h3_use_larry');
     for(const id of ['h3_latent_upscale','h3_rtx_upscale','h3_use_multi_image'])$(id).disabled=!active;
     for(const id of ['h3_final_megapixels','h3_pass1_split','h3_second_pass_sigma','h3_latent_upscale_model'])$(id).disabled=!active||!chk('h3_latent_upscale');
-    if(chk('h3_no_turbo')&&val('h3_second_pass_sigma')!=='4')$('h3_pass1_split').disabled=true;
+    $('h3_pass1_split').max=Math.max(1,Number(val('h3_steps'))-1);
   }
   $('h3_task').addEventListener('change',()=>{sync(true);persistSettingsSoon()});
   $('h3_use_larry').onchange=()=>{selectH3TurboFamily(chk('h3_use_larry')?'larry':'lightx2v');sync();persistSettingsSoon()};
   for(const id of ['h3_no_turbo','h3_latent_upscale','h3_rtx_upscale'])$(id).onchange=()=>{sync();persistSettingsSoon()};
   $('h3_second_pass_sigma').onchange=()=>{sync();persistSettingsSoon()};
+  $('h3_pass1_split').onchange=()=>{set('h3_second_pass_sigma','4');sync();persistSettingsSoon()};
   $('h3_reference_resolution').onchange=()=>persistSettingsSoon();
   // Move existing controls so their IDs and existing bindings remain intact.
   const low=$('h3_megapixels').closest('label');for(const node of low.childNodes)if(node.nodeType===3&&node.textContent.trim()){node.textContent='LOWRES SIZE (MP)';break}

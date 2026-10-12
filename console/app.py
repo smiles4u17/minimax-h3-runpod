@@ -18,7 +18,7 @@ from h3_workflow_options import workflow_options, validate_keyframes, variant_de
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.10-prompt-book-aspect-persistence"
+APP_VERSION = "web-v16.11-h3-payload-split"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -5088,10 +5088,18 @@ async def run_h3(data: dict[str, Any]):
     estimated_inline_bytes = 0
     reference_trims = []
     try:
+        if new_variant:
+            # Localize once: the same photo feeds the base graph and keyframes.
+            photo_paths = [await run_in_threadpool(h3_localize_url, p) if p else '' for p in photo_paths]
+            if task == 'fl2v':
+                data.update(first_frame_path=next(p for p in photo_paths if p),
+                            last_frame_path=photo_paths[1] if len(photo_paths) > 1 else '')
+            else:
+                data['reference_paths'] = [p for p in photo_paths if p]
         if task == "fl2v":
             first_frame = await run_in_threadpool(h3_localize_url, str(data.get("first_frame_path") or "").strip())
             last_frame = await run_in_threadpool(h3_localize_url, str(data.get("last_frame_path") or "").strip())
-            effective_delivery, estimated_inline_bytes = h3_effective_delivery(delivery, [first_frame, last_frame])
+            effective_delivery, estimated_inline_bytes = h3_effective_delivery(delivery, photo_paths if new_variant else [first_frame, last_frame])
             payload["first_frame"] = h3_asset_payload(first_frame, "first_frame", effective_delivery, h3_s3)
             if last_frame:
                 payload["last_frame"] = h3_asset_payload(last_frame, "last_frame", effective_delivery, h3_s3)
@@ -5109,7 +5117,7 @@ async def run_h3(data: dict[str, Any]):
             videos = [await run_in_threadpool(h3_localize_url, p) for p in videos]
             audios = [await run_in_threadpool(h3_localize_url, p) for p in audios]
             video_options = h3_reference_video_settings(data.get("reference_video_settings"), len(videos), duration_value)
-            if data.get('source_workflow') == 'prompt_book':
+            if new_variant or data.get('source_workflow') == 'prompt_book':
                 for i, path in enumerate(videos):
                     videos[i], video_options[i], trim_debug = await run_in_threadpool(h3_prepare_reference_clip, path, video_options[i])
                     reference_trims.append(trim_debug)
@@ -5138,13 +5146,17 @@ async def run_h3(data: dict[str, Any]):
 
     if new_variant:
         try:
-            localized = [await run_in_threadpool(h3_localize_url, str(p)) if p else '' for p in photo_paths]
+            localized = photo_paths
             # Reuse previously materialized inputs; only additional keyframes need uploading.
             existing = dict(zip([p for p in localized if p], payload.get('references', []))) if task == 'r2v' else {next(p for p in localized if p): payload['first_frame']}
             if task == 'fl2v' and len(localized)>1 and localized[1]:
                 existing[localized[1]] = payload['last_frame']
             payload['photos'] = [existing.get(p) or h3_asset_payload(p, f'photo_{i+1}', effective_delivery, h3_s3) if p else None for i,p in enumerate(localized)]
             payload['keyframe_positions'] = positions
+            # Dated workers derive these from photos before building the graph.
+            # Python object reuse still serializes Base64 twice in JSON.
+            for field in ('first_frame', 'last_frame', 'references'):
+                payload.pop(field, None)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
@@ -5209,12 +5221,18 @@ async def run_h3(data: dict[str, Any]):
         if "volume_path" in asset:
             return "network_volume"
         return "url" if "url" in asset else ("base64" if "data" in asset else "none")
+    request_body_bytes = len(json.dumps({'input': payload}, ensure_ascii=True).encode('utf-8'))
+    if request_body_bytes > H3_INLINE_BODY_BUDGET_BYTES:
+        raise HTTPException(400, "H3 request is too large for RunPod's 10 MiB limit. Choose H3 Network Volume delivery or reduce the Advanced JSON/prompt size.")
+    photos = payload.get('photos', [])
     debug = {
         "task": task,
         "workflow_options": variant_options,
         "delivery": delivery,
         "effective_delivery": effective_delivery,
         "estimated_inline_mib": round(estimated_inline_bytes / (1024 * 1024), 2),
+        "request_body_mib": round(request_body_bytes / (1024 * 1024), 2),
+        "photo_modes": [asset_mode(x) for x in photos],
         "duration": payload.get("duration"),
         "megapixels": payload.get("megapixels"),
         "steps": payload.get("steps"),
@@ -5232,9 +5250,9 @@ async def run_h3(data: dict[str, Any]):
         "turbo_lora": turbo_lora or None,
         "network_volume_id": (s.get("h3_storage") or {}).get("network_volume_id"),
         "storage_bucket": storage_s.get("s3_bucket"),
-        "first_frame_mode": asset_mode(payload.get("first_frame")),
-        "last_frame_mode": asset_mode(payload.get("last_frame")),
-        "reference_modes": [asset_mode(x) for x in payload.get("references", [])],
+        "first_frame_mode": asset_mode((next((p for p in photos if p), None) if photos and task == 'fl2v' else payload.get("first_frame"))),
+        "last_frame_mode": asset_mode(photos[1] if len(photos) > 1 and task == 'fl2v' else payload.get("last_frame")),
+        "reference_modes": [asset_mode(x) for x in (photos if new_variant and task == 'r2v' else payload.get("references", [])) if x],
         "reference_video_modes": [asset_mode(x) for x in payload.get("reference_videos", [])],
         "reference_video_settings": payload.get("reference_video_settings", []),
         "reference_trims": reference_trims,

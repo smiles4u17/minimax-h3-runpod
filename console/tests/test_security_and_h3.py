@@ -55,7 +55,9 @@ class SecurityAndH3Tests(unittest.TestCase):
             payload=response.json()['payload']
             self.assertEqual(payload['task'],'fl2v_20260920')
             self.assertTrue(payload['diagnostic_frames'])
-            self.assertEqual(payload['photos'][:2],[payload['first_frame'],payload['last_frame']])
+            self.assertEqual(payload['photos'][:2],[{'data':'fixture'},{'data':'fixture'}])
+            self.assertNotIn('first_frame', payload)
+            self.assertNotIn('last_frame', payload)
             self.assertTrue(payload['latent_upscale']);self.assertTrue(payload['rtx_upscale'])
             submit.assert_not_called()
             upload.reset_mock()
@@ -729,6 +731,46 @@ class SecurityAndH3Tests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "10 MiB limit"):
             media_console.h3_effective_delivery("base64", [str(first), str(second)])
+
+    def test_dated_photos_are_serialized_once_below_runpod_limit(self):
+        image = Path(self.temp_dir.name) / 'large.png'
+        image.write_bytes(b'x' * (5 * 1024 * 1024))
+        for task, variant in [('fl2v', 'fflf_20260920'), ('r2v', 'ref2v_20260920')]:
+            with self.subTest(task=task):
+                request = {'settings': {'runpod_api_key': 'key', 'h3_endpoint_id': 'test'},
+                           'task': task, 'workflow_variant': variant, 'photo_paths': [str(image), '', '', ''],
+                           'prompt': 'test', 'steps': 8, 'pass1_split': 6, 'sampler': 'euler',
+                           'turbo_enabled': False, 'delivery': 'auto'}
+                with (mock.patch.object(media_console, 'configured_s3_helper', return_value=object()),
+                      mock.patch.object(media_console, 'submit', return_value={'id': 'test'}) as submit,
+                      mock.patch.object(media_console, 'record_job_event')):
+                    response = self.client.post('/api/run/h3', json=request)
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = submit.call_args.args[2]
+                self.assertLess(len(json.dumps({'input': payload}).encode()), 10 * 1024 * 1024)
+                self.assertEqual(sum(len(p.get('data', '')) for p in payload['photos'] if p),
+                                 4 * ((image.stat().st_size + 2) // 3))
+                for field in ('first_frame', 'last_frame', 'references'):
+                    self.assertNotIn(field, payload)
+
+    def test_fflf_sizes_all_four_keyframe_photos(self):
+        paths = [Path(self.temp_dir.name) / f'photo{i}.png' for i in range(4)]
+        for path in paths:
+            path.write_bytes(b'x' * (2 * 1024 * 1024))
+        fake_s3 = mock.Mock(bucket='test', root='/runpod-volume')
+        fake_s3.upload.side_effect = lambda path, kind: {'volume': f'/runpod-volume/input/{Path(path).name}'}
+        request = {'settings': {'runpod_api_key': 'key', 'h3_endpoint_id': 'test'},
+                   'workflow_variant': 'fflf_20260920', 'photo_paths': list(map(str, paths)),
+                   'keyframe_positions': ['0%', '33%', '66%', '100%'], 'use_multi_image': True,
+                   'prompt': 'test', 'steps': 8, 'pass1_split': 6, 'sampler': 'euler',
+                   'turbo_enabled': False, 'delivery': 'auto'}
+        with (mock.patch.object(media_console, 'configured_s3_helper', return_value=fake_s3),
+              mock.patch.object(media_console, 'submit', return_value={'id': 'test'}) as submit,
+              mock.patch.object(media_console, 'record_job_event')):
+            response = self.client.post('/api/run/h3', json=request)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(all('volume_path' in p for p in submit.call_args.args[2]['photos']))
+        self.assertEqual(fake_s3.upload.call_count, 4)
 
     def test_h3_run_auto_converts_combined_references_to_volume_paths(self):
         root = Path(self.temp_dir.name)
