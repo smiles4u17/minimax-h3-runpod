@@ -1,8 +1,8 @@
-let PB = {catalog: null, subject: '', subjectB: '', video: '', subjectFolder: '', sceneFolder: 'inspected', dirty: false, aspectTouched: false, durationTouched: false, startTouched: false, syncing: false};
+let PB = {catalog: null, subject: '', subjectB: '', video: '', family: '', subjectFolder: '', sceneFolder: 'inspected', dirty: false, aspectTouched: false, durationTouched: false, startTouched: false, syncing: false};
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
 const PB_GENERATION_STORE = 'prompt-book-h3-generation-v1';
 const PB_DEFAULT_MODEL = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors';
-const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'cache_enabled', 'cache_threshold', 'reference_resolution'];
+const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'attention_profile', 'cache_enabled', 'cache_threshold', 'reference_resolution'];
 
 function pbEsc(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -148,11 +148,116 @@ function pbRenderSubjects() {
   for (const row of pbFiltered('subject')) box.appendChild(pbTile(row, 'subject'));
 }
 
+function pbRoot(row, byId) {
+  let cur = row;
+  const guard = new Set();
+  while (cur.parent_id && byId.get(cur.parent_id) && !guard.has(cur.id)) {
+    guard.add(cur.id);
+    cur = byId.get(cur.parent_id);
+  }
+  return cur;
+}
+
+function pbKids(root, all) {
+  const kids = [];
+  const walk = (id) => {
+    all.filter(item => item.parent_id === id)
+      .sort((a, b) => (Number(a.start_sec) || 0) - (Number(b.start_sec) || 0))
+      .forEach(item => {
+        kids.push(item);
+        walk(item.id);
+      });
+  };
+  walk(root.id);
+  return kids;
+}
+
+function pbGroups(rows) {
+  const all = PB.catalog?.videos || [];
+  const byId = new Map(all.map(row => [row.id, row]));
+  const seen = new Set();
+  const groups = [];
+  for (const row of rows) {
+    const parent = pbRoot(row, byId);
+    if (seen.has(parent.id)) continue;
+    seen.add(parent.id);
+    groups.push({ parent, kids: pbKids(parent, all) });
+  }
+  return groups;
+}
+
+function pbSpanRange(row) {
+  const start = Number(row.start_sec) || 0;
+  const end = Number(row.end_sec) || 0;
+  return end > start ? `${start.toFixed(0)}–${end.toFixed(0)}s` : (row.duration || 'Full clip');
+}
+
 function pbRenderScenes() {
   const box = $('pb_scenes');
   if (!box || !PB.catalog) return;
+  document.getElementById('pb_spans')?.remove();
   box.innerHTML = '';
-  for (const row of pbFiltered('scene')) box.appendChild(pbTile(row, 'scene'));
+  const groups = pbGroups(pbFiltered('scene'));
+  for (const group of groups) {
+    const tile = pbTile(group.parent, 'scene');
+    const selected = PB.family === group.parent.id || PB.video === group.parent.id || group.kids.some(kid => kid.id === PB.video);
+    if (selected) tile.classList.add('on');
+    if (group.kids.length) {
+      const meta = tile.querySelector('.pbMeta');
+      const count = group.kids.length;
+      if (meta) meta.textContent = `${meta.textContent} · ${count} span${count === 1 ? '' : 's'}`;
+    }
+    box.appendChild(tile);
+  }
+  pbRenderScenePanel();
+}
+
+function pbRenderScenePanel() {
+  const panel = $('pb_scene_panel');
+  const layout = $('pb_video_layout');
+  if (!panel || !layout || !PB.catalog) return;
+  const all = PB.catalog.videos || [];
+  const byId = new Map(all.map(row => [row.id, row]));
+  const root = byId.get(PB.family);
+  if (!root) {
+    panel.hidden = true;
+    panel.innerHTML = '';
+    layout.classList.remove('open');
+    return;
+  }
+  const kids = pbKids(root, all).sort((a, b) => (Number(a.start_sec) || 0) - (Number(b.start_sec) || 0));
+  const cards = [root, ...kids];
+  panel.hidden = false;
+  layout.classList.add('open');
+  panel.innerHTML = `
+    <div class="pbSceneHead">
+      <div><h4>${pbEsc(root.label)}</h4><p>${kids.length ? kids.length + (kids.length === 1 ? ' span' : ' spans') : 'This clip'}</p></div>
+      <button type="button" data-pb-close>Close</button>
+    </div>`;
+  for (const row of cards) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pbSpanCard' + (row.id === PB.video ? ' on' : '');
+    button.dataset.scene = row.id;
+    const range = row.id === root.id ? 'Full clip' : pbSpanRange(row);
+    const action = row.action ? `<div class="pbSpanAction">${pbEsc(row.action)}</div>` : '';
+    button.innerHTML = `<img src="/api/prompt-book/media/scene/${encodeURIComponent(row.id + '.jpg')}" alt="">
+      <div class="pbSpanBody"><div class="pbSpanTime">${pbEsc(range)}</div><div class="pbSpanLabel">${pbEsc(row.label)}</div>${action}</div>`;
+    panel.appendChild(button);
+  }
+}
+
+function pbOpenScene(id) {
+  const all = PB.catalog?.videos || [];
+  const byId = new Map(all.map(row => [row.id, row]));
+  const row = byId.get(id);
+  if (!row) return;
+  const root = pbRoot(row, byId);
+  PB.family = root.id;
+  const current = byId.get(PB.video);
+  const staying = current && pbRoot(current, byId).id === root.id;
+  if (staying) pbRenderScenes();
+  else pbPickScene(root.id);
 }
 
 function pbNearestAspect(width, height) {
@@ -287,7 +392,11 @@ function pbPickScene(id) {
   const scene = (PB.catalog?.videos || []).find(row => row.id === id);
   if (scene && !PB.aspectTouched) set('pb_aspect_ratio', pbNearestAspect(scene.width, scene.height));
   pbRenderScenes();
-  const tile = document.querySelector(`#pb_scenes .pbTile[data-id="${CSS.escape(id)}"]`);
+  const all = PB.catalog?.videos || [];
+  const byId = new Map(all.map(row => [row.id, row]));
+  const picked = byId.get(id);
+  const rootId = picked ? pbRoot(picked, byId).id : id;
+  const tile = document.querySelector(`#pb_scenes .pbTile[data-id="${CSS.escape(rootId)}"]`);
   tile?.scrollIntoView({inline: 'nearest', block: 'nearest'});
   pbLoadPreview(id);
   pbBake(true);
@@ -306,6 +415,8 @@ function pbPromptQuery() {
     threesome: pbChecked('pb_threesome') ? '1' : '0',
     subject_b: pbChecked('pb_threesome') ? PB.subjectB : '',
     beta: pbChecked('pb_beta') ? '1' : '0',
+    character_swap: pbChecked('pb_character_swap') ? '1' : '0',
+    opening_frame: pbChecked('pb_opening_frame') ? '1' : '0',
   });
 }
 
@@ -479,6 +590,8 @@ async function runPromptBook() {
       video_editing: pbChecked('pb_video_editing'),
       threesome: pbChecked('pb_threesome'),
       beta: pbChecked('pb_beta'),
+      character_swap: pbChecked('pb_character_swap'),
+      opening_frame: pbChecked('pb_opening_frame'),
       duration: Number(val('pb_duration')) || 5,
       trim_start: val('pb_video_start') || '0',
       trim_end: val('pb_video_end') || '',
@@ -551,7 +664,16 @@ function bindPromptBook() {
   });
   $('pb_scenes')?.addEventListener('click', (event) => {
     const tile = event.target.closest('.pbTile');
-    if (tile) pbPickScene(tile.dataset.id);
+    if (tile) pbOpenScene(tile.dataset.id);
+  });
+  $('pb_scene_panel')?.addEventListener('click', (event) => {
+    if (event.target.closest('[data-pb-close]')) {
+      PB.family = '';
+      pbRenderScenes();
+      return;
+    }
+    const card = event.target.closest('[data-scene]');
+    if (card) pbPickScene(card.dataset.scene);
   });
   $('pb_prompt')?.addEventListener('input', () => {
     PB.dirty = true;
@@ -574,7 +696,7 @@ function bindPromptBook() {
     set('pb_loras', JSON.stringify(items));
   });
   $('pb_aspect_ratio')?.addEventListener('change', () => { PB.aspectTouched = true; });
-  for (const id of ['pb_panties', 'pb_identity_only', 'pb_bare_breasts', 'pb_sound', 'pb_video_editing', 'pb_test_mode', 'pb_beta']) {
+  for (const id of ['pb_panties', 'pb_identity_only', 'pb_bare_breasts', 'pb_sound', 'pb_video_editing', 'pb_test_mode', 'pb_beta', 'pb_character_swap', 'pb_opening_frame']) {
     $(id)?.addEventListener('change', () => pbBake(false));
   }
   $('pb_threesome')?.addEventListener('change', () => {

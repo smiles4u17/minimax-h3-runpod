@@ -25,6 +25,7 @@ import runpod
 from h3_workflow_options import reference_frame_cap
 from telemetry import JobTelemetry, is_oom, runtime_inventory
 from output_naming import copy_flat_output
+from h3_attention_profiles import apply_profile as apply_attention_profile, validate_attention
 
 
 COMFY_ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
@@ -278,6 +279,15 @@ def _attention_mode(requested: str, capability: tuple[int, int] | None) -> str:
     return "sage" if capability in SAGE_CAPABILITIES and _sage_available() else "native"
 
 
+def _sparse_available():
+    try:
+        import torch
+        import comfy_kitchen
+        return torch.cuda.is_available() and comfy_kitchen.sol_attn_is_available(torch.device('cuda:0'))
+    except (ImportError, RuntimeError, AttributeError):
+        return False
+
+
 def _normalize_lora_name(name: str) -> str:
     normalized = name.replace("\\", "/").strip("/")
     if not normalized or ".." in Path(normalized).parts or Path(normalized).is_absolute():
@@ -476,6 +486,12 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         model = ["9161", 0]
 
     attention = _attention_mode(str(payload.get("attention") or ""), capability)
+    try:
+        validate_attention({**payload, 'attention': attention, 'model': effective_model,
+                            'turbo_enabled': turbo_enabled, 'sampler': sampler, 'scheduler': scheduler, 'steps': steps},
+                           capability, _sparse_available() if attention in {'sol-attn', 'sla', 'vsa'} else None)
+    except (TypeError, ValueError) as exc:
+        raise InputError(str(exc)) from exc
     if attention in {"native", "sla", "sol-attn", "vsa"}:
         workflow.pop("145", None)
     else:
@@ -521,6 +537,7 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "low_vram_profile": low_vram_profile,
         "low_vram_prefetch": low_vram_prefetch,
         "attention": attention,
+        "attention_profile": payload.get('attention_profile', 'custom'),
         "text_encoder": workflow["128"]["inputs"]["clip_name"],
         "model": workflow["127"]["inputs"]["unet_name"],
         "requested_model": requested_model,
@@ -752,6 +769,10 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
 
 
 def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        payload = apply_attention_profile(payload)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
     from h3_workflow_options import workflow_options, variant_defaults
     from workflow_variants import apply_variant
     try:

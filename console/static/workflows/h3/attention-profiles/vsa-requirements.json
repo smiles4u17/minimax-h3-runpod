@@ -1,0 +1,4 @@
+{
+  "enabled": false,
+  "reason": "No compatible native-worker VSA checkpoint has been validated"
+}

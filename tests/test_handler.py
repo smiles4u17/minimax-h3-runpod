@@ -115,7 +115,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(any(n["class_type"] == "LoadImage" for n in graph.values()))
 
     def test_sparse_modes_route_sampler_and_scheduler_through_native_patch(self):
-        for mode in ("sla", "sol-attn", "vsa"):
+        for mode in ("sol-attn",):
             graph, meta = handler.build_preset({"task": "t2v", "prompt": "robot", "attention": mode,
                 "sparse_trained_weights": True, "sparse_keep_percent": 15, "cache_enabled": False})
             self.assertEqual(graph["9160"]["inputs"]["selection"], mode)
@@ -277,6 +277,7 @@ class WorkflowTests(unittest.TestCase):
         handler._gpu_info = lambda: ("RTX 5090", (12, 0))
         handler._gpu_total_vram_gb = lambda: 96.0
         handler._sage_available = lambda: True
+        handler._sparse_available = lambda: True
 
     def tearDown(self) -> None:
         self.temp.cleanup()

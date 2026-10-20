@@ -23,6 +23,7 @@ import imageio_ffmpeg
 
 PROMPT_BOOK_BASE = os.environ.get("PROMPT_BOOK_URL", "http://127.0.0.1:8788").rstrip("/")
 WORKFLOW_ROOT = Path(os.environ.get("PROMPT_BOOK_WORKFLOW_DIR", r"Z:\Grok\workflows\sla-bench"))
+FRAME_DIR = Path(__file__).resolve().parent / "cache" / "opening_frames"
 
 BETA5_MODEL = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
 
@@ -32,7 +33,7 @@ BETA5_MODEL = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
 H3_GENERATION_FIELDS = {
     "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
     "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
-    "latent_upscale_model", "cache_enabled", "cache_threshold", "attention", "reference_resolution",
+    "latent_upscale_model", "cache_enabled", "cache_threshold", "attention", "attention_profile", "reference_resolution",
     "seed", "seed_random", "turbo_enabled", "use_larry", "turbo_family",
     "turbo_lora", "turbo_strength", "pdd_enabled", "sampling_preset",
     "sparse_keep_percent", "sparse_tau", "sparse_start_percent",
@@ -417,6 +418,41 @@ def photo_paths(subject: dict[str, Any], subject_b: dict[str, Any] | None) -> li
     return ordered[:4]
 
 
+def grab_opening_frame(source: str, at_sec: float) -> str:
+    """JPEG of the clip frame the model will treat as frame 1. Missing files return empty."""
+    path = Path(source)
+    if not path.is_file():
+        return ""
+    at = max(0.0, float(at_sec or 0))
+    stat = path.stat()
+    key = hashlib.sha256(
+        f"{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{at:.3f}".encode()
+    ).hexdigest()[:24]
+    FRAME_DIR.mkdir(parents=True, exist_ok=True)
+    dest = FRAME_DIR / f"{key}.jpg"
+    if dest.is_file() and dest.stat().st_size > 1000:
+        return str(dest)
+    cmd = [
+        imageio_ffmpeg.get_ffmpeg_exe(),
+        "-y",
+        "-ss",
+        f"{at:.3f}",
+        "-i",
+        str(path),
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        str(dest),
+    ]
+    subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+    if not dest.is_file() or dest.stat().st_size < 1000:
+        if dest.exists():
+            dest.unlink()
+        raise ValueError("Opening frame could not be read from the clip")
+    return str(dest)
+
+
 def slim_catalog(raw: dict[str, Any]) -> dict[str, Any]:
     subject_folders = {str(item.get("id")): item.get("name") or "" for item in raw.get("subject_folders") or []}
     scene_folders = {str(item.get("id")): item.get("name") or "" for item in raw.get("scene_folders") or []}
@@ -443,6 +479,10 @@ def slim_catalog(raw: dict[str, Any]) -> dict[str, Any]:
             "height": item.get("height") or 0,
             "inspected": bool(item.get("inspected")),
             "act": item.get("act") or "",
+            "parent_id": item.get("parent_id") or "",
+            "start_sec": item.get("start_sec") or 0,
+            "end_sec": item.get("end_sec") or 0,
+            "action": item.get("action") or "",
         })
     return {
         "subjects": subjects,
@@ -499,6 +539,8 @@ def build_prompt_book_h3_request(
     test_mode = flag(data, "test_mode", False)
     video_editing = flag(data, "video_editing", True)
     beta = flag(data, "beta", False)
+    character_swap = flag(data, "character_swap", False)
+    opening_frame = flag(data, "opening_frame", True)
     if catalog is None:
         catalog = book_json("/api/catalog", timeout=120)
     if baked is None:
@@ -515,12 +557,19 @@ def build_prompt_book_h3_request(
             "threesome": "1" if threesome else "0",
             "subject_b": subject_b_id,
             "beta": "1" if beta else "0",
+            "character_swap": "1" if character_swap else "0",
+            "opening_frame": "1" if opening_frame else "0",
         }))
     subject = _card(list(catalog.get("subjects") or []), subject_id, "subject")
     scene = _card(list(catalog.get("videos") or []), video_id, "video")
     subject_b = _card(list(catalog.get("subjects") or []), subject_b_id, "subject") if subject_b_id else None
     photos = photo_paths(subject, subject_b)
     video = str(scene.get("file") or "").strip()
+    if opening_frame and video:
+        trim_for_frame, _trim_length = trim_window(data, scene.get("duration_sec"))
+        frame = grab_opening_frame(video, trim_for_frame)
+        if frame:
+            photos = (photos[:1] + [frame] + photos[1:])[:4]
     if not video:
         raise ValueError("The selected scene has no video file")
     trim_start, trim_length = trim_window(data, scene.get("duration_sec"))
@@ -625,6 +674,7 @@ def build_prompt_book_h3_request(
         request["loras"] = loras
         request["seed_random"] = inherited.get("seed_random", False)
     request.update(explicit_generation)
+    request['attention_profile'] = str(data.get('attention_profile') or request.get('attention_profile') or 'custom')
     # Prompt Book never sends a separate Turbo LoRA or its dedicated sampler,
     # even if an older caller passed enabled main-H3 settings.
     request["turbo_enabled"] = False

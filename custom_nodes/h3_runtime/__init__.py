@@ -8,6 +8,7 @@ import comfy.samplers
 import torch
 
 ROOT = Path(os.environ.get('RUNPOD_VOLUME_ROOT', '/runpod-volume')).resolve()
+ATTENTION_VALIDATION = None
 CATEGORIES = {
     'checkpoints': ['checkpoints'], 'diffusion_models': ['diffusion_models', 'unet'],
     'text_encoders': ['text_encoders', 'clip'], 'vae': ['vae'], 'loras': ['loras'],
@@ -27,6 +28,7 @@ async def runtime(request):
                               'gpu': torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU',
                               'gpu_memory_bytes': torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0,
                               'cuda_capability': list(torch.cuda.get_device_capability(0)) if torch.cuda.is_available() else [],
+                              'attention_validation': ATTENTION_VALIDATION,
                               'samplers': ['h3_turbo', *comfy.samplers.SAMPLER_NAMES],
                               'schedulers': comfy.samplers.SCHEDULER_NAMES})
 
@@ -51,6 +53,7 @@ NODE_CLASS_MAPPINGS = {'H3ReferenceVideoScale': H3ReferenceVideoScale}
 
 @PromptServer.instance.routes.post('/h3/attention-check')
 async def attention_check(request):
+    global ATTENTION_VALIDATION
     from .attention_probe import probe, smoke
     data = await request.json()
     mode = data.get('mode', 'address')
@@ -58,6 +61,7 @@ async def attention_check(request):
         return web.json_response({'error': 'mode must be address or smoke'}, status=400)
     try:
         result = smoke() if mode == 'smoke' else probe()
+        ATTENTION_VALIDATION = result
         return web.json_response(result)
     finally:
         torch.cuda.empty_cache()

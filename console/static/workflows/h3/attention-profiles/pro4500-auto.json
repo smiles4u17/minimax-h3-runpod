@@ -1,0 +1,19 @@
+{
+  "card_preview": "RTX PRO 4500 Blackwell \u00b7 32 GB",
+  "evidence": "Supported dense default; not a claim of fastest performance",
+  "input": {
+    "task": "t2v",
+    "prompt": "A small ceramic teapot on a wooden table in soft daylight.",
+    "model": "10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors",
+    "clip": "auto",
+    "duration": 2,
+    "megapixels": 0.2,
+    "steps": 8,
+    "turbo_enabled": false,
+    "sampler": "euler",
+    "scheduler": "simple",
+    "attention_profile": "auto",
+    "cache_enabled": false,
+    "seed": 12345
+  }
+}

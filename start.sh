@@ -70,6 +70,7 @@ trap shutdown EXIT INT TERM
 
 for _ in $(seq 1 180); do
   if wget -q -O /dev/null "http://$COMFY_HOST:$COMFY_PORT/system_stats"; then
+    python3.12 /opt/minimax-h3/scripts/verify_gpu_attention.py
     exec python3.12 -u /opt/minimax-h3/handler.py
   fi
   if ! kill -0 "$COMFY_PID" 2>/dev/null; then

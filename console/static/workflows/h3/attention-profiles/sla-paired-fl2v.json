@@ -1,0 +1,30 @@
+{
+  "required_files": [
+    "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+    "minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors"
+  ],
+  "evidence": "Requires the converted SLA adapter and standard FL2VA checkpoint",
+  "input": {
+    "task": "t2v",
+    "prompt": "A small ceramic teapot on a wooden table in soft daylight.",
+    "model": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+    "clip": "auto",
+    "duration": 2,
+    "megapixels": 0.2,
+    "steps": 4,
+    "sampler": "euler",
+    "scheduler": "simple",
+    "turbo_enabled": false,
+    "attention_profile": "sla",
+    "sparse_trained_weights": true,
+    "sparse_keep_percent": 15,
+    "shift_video": 6,
+    "shift_audio": 3,
+    "loras": [
+      {
+        "name": "H3/minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors",
+        "strength": 1
+      }
+    ]
+  }
+}

@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from output_sync import OutputSync
 from generation_log import SubmissionLog
 from job_list import sent_requests, merge_live_requests, sorted_requests
+from h3_attention_profiles import apply_profile as apply_attention_profile, validate_attention, catalog as attention_profile_catalog
 from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults, reference_frame_cap
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
@@ -68,13 +69,15 @@ SECRET_PATHS = (
 )
 JOB_HISTORY_LOCK = threading.Lock()
 OUTPUT_SAVE_LOCK = threading.Lock()
+RETIRED_ENDPOINT_IDS = {'up7pri63h6a97m', 'xzuzc4wcu0lxux'}
+RETIRED_SETTINGS = {'wan22_endpoint_id', 'wan22', 'infinite_endpoint_id', 'wan_endpoint_id', 'infinitetalk', 'wananimate'}
 for d in (DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, THUMB_DIR, SAM_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 
 def defaults() -> dict[str, Any]:
     return {
-        "runpod_api_key":"", "infinite_endpoint_id":"", "wan_endpoint_id":"", "h3_endpoint_id":"s1e3i9book2zhh",
+        "runpod_api_key":"", "h3_endpoint_id":"s1e3i9book2zhh",
         "poll_interval_seconds":4, "timeout_seconds":3600,
         "s3_endpoint_url":"https://s3api-eu-ro-1.runpod.io", "s3_access_key_id":"", "s3_secret_access_key":"",
         "s3_bucket":"", "s3_region":"eu-ro-1", "s3_prefix":"input/runpod-media-console", "runpod_volume_root":"/runpod-volume",
@@ -82,12 +85,12 @@ def defaults() -> dict[str, Any]:
         "cache_dir":str(DEFAULT_CACHE_DIR), "sam_output_dir":str(DEFAULT_SAM_OUTPUT_DIR), "cache_max_age_days":7, "cache_cleanup_enabled":True, "hf_cache_dir":"",
         "sam":{"backend":"local_sam3","device":"cuda","sam3_python":sys.executable,"hf_token":"","external_command":"","mask_fill":"black","make_masked_video":True,"masked_video_frame_cap":180,"video_start":"","video_end":"","source_path":"","mask_path":"","mask_video_path":"","overlay_path":"","cutout_path":"","masked_image_path":"","masked_video_path":""},
         "tts":{"engine":"windows_sapi","voice":"","rate":0,"volume":100,"piper_exe":"","piper_model":"","piper_config":"","output_path":"","inf_output_path":""},
-        "infinitetalk":{"input_type":"image","person_count":"single","image_path":"","video_path":"","audio_path":"","audio2_path":"","width":512,"height":512,"max_frame":"","force_offload":True,"network_volume":True,"prompt":"A person talking naturally","advanced_json":"{}","video_start":"","video_end":"","video_frame_cap":"","video_crop":"","audio_start":"","audio_end":"","audio2_start":"","audio2_end":""},
-        "wananimate":{"mode":"replace","image_path":"","video_path":"","mask_path":"","masked_video_path":"","mask_pretrimmed":False,"width":0,"height":0,"seed":12345,"fps":16,"cfg":1.0,"steps":6,"pose_estimation":True,"face_detection":True,"mask_editing":False,"network_volume":True,"prompt":"","negative_prompt":"blurry, low quality, distorted","control_points_enabled":False,"advanced_json":"{}","video_start":"","video_end":"","video_frame_cap":"","video_crop":"","delivery_override":"auto"},
+
+
         "h3":{"task":"fl2v","first_frame_path":"","last_frame_path":"","reference_paths":[],"reference_video_paths":[],"reference_video_audio":[],"reference_video_settings":[],"reference_audio_paths":[],"reference_subjects":[],"subject_generated_prefix":"","audio_path":"","use_reference_audio_as_output":False,"prompt":"A cinematic shot with natural, stable motion.","duration":2.0,"megapixels":0.2,"steps":6,"seed":123456789,"seed_random":False,"sampling_preset":"stock_turbo","sampler":"h3_turbo","scheduler":"simple","cache_enabled":False,"cache_threshold":0.18,"attention":"auto","aspect_ratio":"16:9 (Widescreen)","filename_prefix":"H3","delivery":"auto","fl2va_model":"minimax_h3_fl2va_pruned_int8_convrot.safetensors","ref2va_model":"minimax_h3_ref2va_pruned_int8_convrot.safetensors","text_encoder":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","video_vae":"minimax_h3_video_vae_fp16.safetensors","audio_vae":"minimax_h3_audio_vae_fp32.safetensors","clip_projection":"","turbo_enabled":True,"turbo_lora":"minimax_h3_turbo_v4_step600_ema.safetensors","turbo_strength":1.0,"loras":[],"advanced_json":"{}"},
         "h3_storage":{"network_volume_id":"vgc3ky6r6y","s3_endpoint_url":"","s3_access_key_id":"","s3_secret_access_key":"","s3_bucket":"vgc3ky6r6y","s3_region":"eu-ro-1","s3_prefix":"minimax-h3","runpod_volume_root":"/runpod-volume","comfyui_pod_id":""},
         "model_download":{"hf_token":"","civitai_token":""},
-        "samimate":{"video_path":"","image_path":"","subject_prompt":"person","prompt":"","negative_prompt":"blurry, low quality, distorted","advanced_json":"{}","generation_backend":"wan","mask_frame_cap":0,"mode":"replace","delivery_override":"auto","width":832,"height":480,"seed":12345,"fps":16,"cfg":1.0,"steps":6,"pose_estimation":True,"face_detection":True,"mask_editing":True,"network_volume":True,"video_start":"","video_end":"","video_frame_cap":"","video_crop":"","use_wan_points":False},
+        "samimate":{"video_path":"","image_path":"","subject_prompt":"person","prompt":"","negative_prompt":"blurry, low quality, distorted","advanced_json":"{}","generation_backend":"h3","mask_frame_cap":0,"mode":"replace","delivery_override":"auto","width":832,"height":480,"seed":12345,"fps":16,"cfg":1.0,"steps":6,"pose_estimation":True,"face_detection":True,"mask_editing":True,"network_volume":True,"video_start":"","video_end":"","video_frame_cap":"","video_crop":"","use_wan_points":False},
     }
 
 
@@ -174,7 +177,7 @@ def preserve_blank_secrets(current: dict[str, Any], update: dict[str, Any]) -> d
 
 def runtime_settings(update: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     current = settings()
-    return merge(current, preserve_blank_secrets(current, update or {}))
+    return retire_legacy_settings(merge(current, preserve_blank_secrets(current, update or {})))
 
 
 def public_settings(data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -201,16 +204,23 @@ def h3_output_prefix(value: Any) -> str:
 
 def settings() -> dict[str, Any]:
     out = merge(defaults(), load_json(SETTINGS_PATH, {}))
-    out.pop("wan22_endpoint_id", None)
-    out.pop("wan22", None)
+    retire_legacy_settings(out)
     h3 = out.get("h3")
     if isinstance(h3, dict):
         h3["filename_prefix"] = h3_output_prefix(h3.get("filename_prefix"))
     return out
+
+
+def retire_legacy_settings(data):
+    for name in RETIRED_SETTINGS:
+        data.pop(name, None)
+    if isinstance(data.get('samimate'), dict):
+        data['samimate']['generation_backend'] = 'h3'
+    return data
 def save_settings(data: dict[str, Any]) -> dict[str, Any]:
     current = settings()
-    out = merge(current, preserve_blank_secrets(current, data))
-    SETTINGS_PATH.write_text(json.dumps(out, indent=2), encoding="utf-8")
+    out = retire_legacy_settings(merge(current, preserve_blank_secrets(current, data)))
+    save_json(SETTINGS_PATH, out)
     apply_cache_settings(out)
     return out
 
@@ -2449,6 +2459,8 @@ def effective_video_duration(meta: dict[str, Any], start: Any = None, end: Any =
     return {"raw": raw, "effective": round(actual, 3), "requested": round(requested, 3) if requested is not None else None, "start": st, "end": en, "cap_frames": cap_frames, "fps": fps}
 
 def validation_result(tab: str, data: dict[str, Any]) -> dict[str, Any]:
+    if tab in {'inf', 'wan', 'infinitetalk', 'wananimate'}:
+        raise HTTPException(410, 'InfiniteTalk and Wan Animate have been retired; use MiniMax H3')
     errors: list[str] = []
     warnings: list[str] = []
     info: dict[str, Any] = {}
@@ -2859,14 +2871,15 @@ def get_presets():
     presets = load_json(PRESETS_PATH, {})
     if not isinstance(presets, dict):
         presets = {}
-    if presets.pop("wan22", None) is not None:
+    retired = [presets.pop(key, None) for key in ('wan22', 'inf', 'wan')]
+    if any(value is not None for value in retired):
         save_json(PRESETS_PATH, presets)
     return {"presets": presets}
 @app.post("/api/presets")
 async def save_preset(data: dict[str, Any]):
     name = clean_name(data.get("name") or "preset")
-    tab = data.get("tab") or "wan"
-    if tab not in {"inf", "wan", "h3", "samimate"}:
+    tab = data.get("tab") or "h3"
+    if tab not in {"h3", "samimate"}:
         raise HTTPException(400, "Unsupported preset type.")
     presets = load_json(PRESETS_PATH, {})
     if not isinstance(presets, dict):
@@ -2887,7 +2900,7 @@ def get_endpoint_profiles():
     if not isinstance(profiles, dict):
         profiles = {}
     clean_profiles: dict[str, Any] = {}
-    profile_keys = ["infinite_endpoint_id", "wan_endpoint_id", "h3_endpoint_id", "delivery_mode", "s3_bucket", "s3_prefix", "runpod_volume_root"]
+    profile_keys = ["h3_endpoint_id", "delivery_mode", "s3_bucket", "s3_prefix", "runpod_volume_root"]
     h3_keys = ["network_volume_id", "s3_endpoint_url", "s3_bucket", "s3_region", "s3_prefix", "runpod_volume_root"]
     for name, raw in profiles.items():
         raw = raw if isinstance(raw, dict) else {}
@@ -2904,7 +2917,7 @@ async def save_endpoint_profile(data: dict[str, Any]):
     profiles = load_json(ENDPOINT_PROFILES_PATH, {})
     if not isinstance(profiles, dict):
         profiles = {}
-    profiles[name] = {k: data.get(k, "") for k in ["infinite_endpoint_id", "wan_endpoint_id", "h3_endpoint_id", "delivery_mode", "s3_bucket", "s3_prefix", "runpod_volume_root"]}
+    profiles[name] = {k: data.get(k, "") for k in ["h3_endpoint_id", "delivery_mode", "s3_bucket", "s3_prefix", "runpod_volume_root"]}
     h3_storage = data.get("h3_storage") if isinstance(data.get("h3_storage"), dict) else {}
     profiles[name]["h3_storage"] = {k: h3_storage.get(k, "") for k in ["network_volume_id", "s3_endpoint_url", "s3_bucket", "s3_region", "s3_prefix", "runpod_volume_root"]}
     save_json(ENDPOINT_PROFILES_PATH, profiles)
@@ -2936,7 +2949,8 @@ def get_sent_requests(force: bool = False):
         cache_key = (fingerprint, tuple(sorted(configured)))
         if not force and JOB_REQUEST_CACHE.get('key') == cache_key and time.monotonic() - JOB_REQUEST_CACHE.get('checked', 0) < 10:
             return JOB_REQUEST_CACHE['result']
-        rows = sent_requests(load_json(JOB_HISTORY_PATH, []), GENERATION_LOG_DIR)
+        rows = {key: row for key, row in sent_requests(load_json(JOB_HISTORY_PATH, []), GENERATION_LOG_DIR).items()
+                if key[0] not in RETIRED_ENDPOINT_IDS and row.get('target') not in {'inf', 'wan'}}
         endpoints = configured | {endpoint for endpoint, _ in rows}
         def read(endpoint):
             try:
@@ -2986,18 +3000,6 @@ async def repair_media(data: dict[str, Any]):
 async def post_image_editor_apply(data: dict[str, Any]):
     try:
         return image_editor_apply(data)
-    except Exception as e:
-        raise HTTPException(400, str(e))
-@app.post("/api/wan/align-mask-preview")
-async def wan_align_mask_preview(data: dict[str, Any]):
-    try:
-        if not (data.get("video_path") or "").strip():
-            raise HTTPException(400, "Wan reference video is required")
-        if not (data.get("mask_path") or "").strip():
-            raise HTTPException(400, "Wan subject mask is required")
-        return align_wan_mask_to_video(data)
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(400, str(e))
 @app.get("/api/uploads/recent")
@@ -4534,82 +4536,6 @@ def sam_health():
         "sam_dir": str(SAM_DIR),
     }
 
-@app.post("/api/run/infinitetalk")
-async def run_inf(data: dict[str,Any]):
-    s=runtime_settings(data.get("settings",{})); key=s.get("runpod_api_key"); endpoint=s.get("infinite_endpoint_id")
-    if not key or not endpoint: raise HTTPException(400,"RunPod key and InfiniteTalk endpoint required")
-    if endpoint == "iy7tnhm4e521zk":
-        raise HTTPException(400, "InfiniteTalk endpoint is still set to the old default that returned 404. Paste your actual InfiniteTalk RunPod endpoint ID in Settings.")
-    delivery=data.get("delivery_mode") or s.get("delivery_mode","runpod_volume_path"); s3=S3Helper(s) if delivery!="base64" else None
-    input_type = data.get("input_type","image")
-    person_count = data.get("person_count","single")
-    if input_type == "video" and not (data.get("video_path") or "").strip():
-        raise HTTPException(400, "InfiniteTalk video mode requires a video_path")
-    if input_type == "image" and not (data.get("image_path") or "").strip():
-        raise HTTPException(400, "InfiniteTalk image mode requires an image_path")
-    if not (data.get("audio_path") or "").strip():
-        raise HTTPException(400, "InfiniteTalk requires audio_path")
-    if person_count == "multi" and not (data.get("audio2_path") or "").strip():
-        raise HTTPException(400, "InfiniteTalk multi mode requires audio2_path")
-    payload={"input_type":input_type,"person_count":person_count,"prompt":data.get("prompt") or "A person talking naturally","width":int(data.get("width") or 512),"height":int(data.get("height") or 512),"force_offload":as_bool(data.get("force_offload"), True),"network_volume":as_bool(data.get("network_volume"), True)}
-    audio_start = seconds(data.get("audio_start")) or 0.0
-    audio_end = seconds(data.get("audio_end"))
-    audio_len = max(0.0, (audio_end - audio_start) if audio_end is not None else duration(data.get("audio_path","")) - audio_start)
-    if as_bool(data.get("sync_to_audio"), False) and input_type == "image" and data.get("max_frame") in (None, "") and audio_len > 0:
-        data["max_frame"] = int(max(1, round(audio_len * 24)))
-    if data.get("max_frame") not in (None,""): payload["max_frame"]=int(data["max_frame"])
-    processed_video = None
-    if payload["input_type"]=="video":
-        if as_bool(data.get("sync_to_audio"), False) and audio_len > 0:
-            vst = seconds(data.get("video_start")) or 0.0
-            data["video_end"] = vst + audio_len
-            data["video_frame_cap"] = ""
-        processed_video=process_video(data.get("video_path",""), data.get("video_start"), data.get("video_end"), data.get("video_frame_cap"), data.get("video_crop"))
-        payload.update(media_payload("video",processed_video,delivery,s3))
-    else:
-        payload.update(media_payload("image", data.get("image_path",""), delivery, s3))
-    processed_audio = process_audio(data.get("audio_path",""), data.get("audio_start"), data.get("audio_end"))
-    payload.update(media_payload("wav", processed_audio, delivery, s3))
-    processed_audio2 = None
-    if payload["person_count"]=="multi":
-        processed_audio2 = process_audio(data["audio2_path"], data.get("audio2_start"), data.get("audio2_end"))
-        payload.update(media_payload("wav_2",processed_audio2,delivery,s3))
-    try: payload.update(json.loads(data.get("advanced_json") or "{}"))
-    except Exception as e: raise HTTPException(400,f"Invalid advanced JSON: {e}")
-    cleared = []
-    if payload["input_type"] == "video" and not (data.get("image_path") or "").strip():
-        cleared.append("image")
-    if payload["input_type"] == "image" and not (data.get("video_path") or "").strip():
-        cleared.append("video")
-    if not (data.get("audio_path") or "").strip():
-        cleared.append("wav")
-    if payload["person_count"] != "multi" or not (data.get("audio2_path") or "").strip():
-        cleared.append("wav_2")
-    remove_media_payload_keys(payload, cleared)
-    job = await run_in_threadpool(submit, endpoint, key, payload, s)
-    debug = {
-        "input_type": payload.get("input_type"),
-        "person_count": payload.get("person_count"),
-        "image_key": next((k for k in ("image_path", "image_url", "image_base64") if k in payload), None),
-        "video_key": next((k for k in ("video_path", "video_url", "video_base64") if k in payload), None),
-        "audio1_key": next((k for k in ("wav_path", "wav_url", "wav_base64") if k in payload), None),
-        "audio2_key": next((k for k in ("wav_2_path", "wav_2_url", "wav_2_base64") if k in payload), None),
-        "video_start": data.get("video_start") or "0",
-        "video_end": data.get("video_end") or "full",
-        "frame_cap": "ignored_by_trim" if (data.get("video_start") or data.get("video_end")) else (data.get("video_frame_cap") or "0"),
-        "max_frame": payload.get("max_frame", "none"),
-        "delivery_mode": delivery,
-        "processed_video": processed_video,
-        "audio_start": data.get("audio_start") or "0",
-        "audio_end": data.get("audio_end") or "full",
-        "audio2_start": data.get("audio2_start") or "0",
-        "audio2_end": data.get("audio2_end") or "full",
-        "processed_audio": processed_audio,
-        "processed_audio2": processed_audio2,
-        "sync_to_audio": as_bool(data.get("sync_to_audio"), False),
-    }
-    record_job_event({"target": "inf", "endpoint_id": endpoint, "job_id": job.get("id"), "status": "SUBMITTED", "payload_keys": sorted(payload.keys()), "debug": debug})
-    return {"job":job,"endpoint_id":endpoint,"payload_keys":sorted(payload.keys()),"debug":debug}
 
 
 def normalize_point_json(raw: Any, fallback: Any) -> tuple[str, Any]:
@@ -4666,95 +4592,6 @@ def coerce_control_points(data: dict[str, Any]) -> tuple[str, str, str, int, int
 
 
 
-@app.post("/api/run/wananimate")
-async def run_wan(data: dict[str,Any]):
-    s=runtime_settings(data.get("settings",{})); key=s.get("runpod_api_key"); endpoint=s.get("wan_endpoint_id")
-    if not key or not endpoint: raise HTTPException(400,"RunPod key and WanAnimate endpoint required")
-    delivery=data.get("wan_delivery_override") or data.get("delivery_mode") or s.get("delivery_mode","runpod_volume_path")
-    if data.get("source_workflow") == "samimate" and delivery == "auto":
-        delivery = data.get("delivery_mode") or s.get("delivery_mode") or "runpod_volume_path"
-        if delivery == "auto":
-            delivery = "runpod_volume_path"
-    if delivery == "global":
-        delivery = data.get("delivery_mode") or s.get("delivery_mode","runpod_volume_path")
-    s3=S3Helper(s) if delivery!="base64" else None
-    if data.get("source_workflow") == "samimate":
-        data["video_frame_cap"] = int(data.get("samimate_mask_frame_cap") or 0)
-    width, height, dim_debug = resolve_wan_dimensions(data, local_probe_video_path(data.get("video_path","")))
-    vp=process_video(data.get("video_path",""), data.get("video_start"), data.get("video_end"), data.get("video_frame_cap"), data.get("video_crop"), (width, height), data.get("fps") if data.get("source_workflow") == "samimate" else None)
-    image_path = process_wan_reference_image(data.get("image_path","")) if (data.get("image_path") or "").strip() else ""
-    mask_path = ""
-    mask_alignment_debug = None
-    if (data.get("mask_path") or "").strip():
-        mask_alignment = align_wan_mask_to_video(data, vp)
-        mask_path = mask_alignment["path"]
-        mask_alignment_debug = {k: mask_alignment.get(k) for k in ("mask_probe", "video_probe", "trim", "resolved_width", "resolved_height")}
-    masked_video_path = ""
-    if (data.get("masked_video_path") or "").strip():
-        masked_video_path = process_video(data.get("masked_video_path",""), data.get("video_start"), data.get("video_end"), data.get("video_frame_cap"), data.get("video_crop"), (width, height))
-    seed_value, seed_was_randomized = normalize_seed(data.get("seed"))
-    payload={"prompt":data.get("prompt") or "","negative_prompt":data.get("negative_prompt") or "blurry, low quality, distorted","mode":data.get("mode") or "replace","pose_estimation":as_bool(data.get("pose_estimation"), True),"face_detection":as_bool(data.get("face_detection"), True),"mask_editing":as_bool(data.get("mask_editing"), False),"network_volume":as_bool(data.get("network_volume"), True),"width":width,"height":height,"seed":seed_value,"fps":int(data.get("fps") or 16),"cfg":float(data.get("cfg") or 1.0),"steps":int(data.get("steps") or 6)}
-    payload.update(media_payload("image", image_path, delivery, s3)); payload.update(media_payload("video", vp, delivery, s3))
-    if mask_path: payload.update(media_payload("mask", mask_path, delivery, s3))
-    if masked_video_path: payload.update(media_payload("masked_video", masked_video_path, delivery, s3))
-    point_debug = {"positive_points": 0, "negative_points": 0}
-    if data.get("control_points_enabled"):
-        points_store_s, coords_s, neg_s, pos_count, neg_count = coerce_control_points(data)
-        payload["points_store"] = points_store_s
-        payload["coordinates"] = coords_s
-        payload["neg_coordinates"] = neg_s
-        point_debug = {"positive_points": pos_count, "negative_points": neg_count}
-    try: payload.update(json.loads(data.get("advanced_json") or "{}"))
-    except Exception as e: raise HTTPException(400,f"Invalid advanced JSON: {e}")
-    cleared = []
-    if not (data.get("image_path") or "").strip():
-        cleared.append("image")
-    if not (data.get("video_path") or "").strip():
-        cleared.append("video")
-    if not (data.get("mask_path") or "").strip():
-        cleared.append("mask")
-    if not (data.get("masked_video_path") or "").strip():
-        cleared.append("masked_video")
-    debug = {
-        "mode": payload.get("mode"),
-        "control_points": bool(data.get("control_points_enabled")),
-        "positive_points": point_debug.get("positive_points", 0),
-        "negative_points": point_debug.get("negative_points", 0),
-        "image_key": next((k for k in ("image_path", "image_url", "image_base64") if k in payload), None),
-        "video_key": next((k for k in ("video_path", "video_url", "video_base64") if k in payload), None),
-        "masked_video_key": next((k for k in ("masked_video_path", "masked_video_url", "masked_video_base64") if k in payload), None),
-        "mask_key": next((k for k in ("mask_path", "mask_url", "mask_base64") if k in payload), None),
-        "delivery_mode": delivery,
-        "image_value": next((payload.get(k) for k in ("image_path", "image_url", "_image_s3_uri") if k in payload), None),
-        "video_value": next((payload.get(k) for k in ("video_path", "video_url", "_video_s3_uri") if k in payload), None),
-        "masked_video_value": next((payload.get(k) for k in ("masked_video_path", "masked_video_url", "_masked_video_s3_uri") if k in payload), None),
-        "mask_value": next((payload.get(k) for k in ("mask_path", "mask_url", "_mask_s3_uri") if k in payload), None),
-        "video_start": data.get("video_start") or "0",
-        "video_end": data.get("video_end") or "full",
-        "frame_cap": "ignored_by_trim" if (data.get("video_start") or data.get("video_end")) else (data.get("video_frame_cap") or "0"),
-        "seed": payload.get("seed"),
-        "seed_randomized_from_negative": seed_was_randomized,
-        "pose_estimation": payload.get("pose_estimation"),
-        "face_detection": payload.get("face_detection"),
-        "mask_editing": payload.get("mask_editing"),
-        "network_volume": payload.get("network_volume"),
-        "resolved_width": width,
-        "resolved_height": height,
-        "dimension_debug": dim_debug,
-        "processed_video": vp,
-        "processed_mask": mask_path,
-        "mask_alignment": mask_alignment_debug,
-        "processed_image": image_path,
-    }
-    remove_media_payload_keys(payload, cleared)
-    debug["payload_keys"] = sorted(payload.keys())
-    try:
-        job = await run_in_threadpool(submit, endpoint, key, payload, s)
-    except HTTPException as e:
-        record_job_event({"target": "samimate" if data.get("source_workflow") == "samimate" else "wan", "endpoint_id": endpoint, "job_id": None, "status": "SUBMIT_FAILED", "payload_keys": sorted(payload.keys()), "debug": debug, "error": e.detail})
-        raise HTTPException(e.status_code, {"message": e.detail, "debug": debug, "payload_keys": sorted(payload.keys())}) from e
-    record_job_event({"target": "samimate" if data.get("source_workflow") == "samimate" else "wan", "endpoint_id": endpoint, "job_id": job.get("id"), "status": "SUBMITTED", "payload_keys": sorted(payload.keys()), "debug": debug})
-    return {"job": job, "endpoint_id": endpoint, "payload_keys": sorted(payload.keys()), "debug": debug}
 
 def validate_h3_turbo(task: str, name: str, family: str, sampler: str) -> None:
     lower = name.lower()
@@ -4937,7 +4774,10 @@ async def run_prompt_book(data: dict[str, Any]):
 
 @app.post("/api/run/h3")
 async def run_h3(data: dict[str, Any]):
-    data = dict(data)
+    try:
+        data = apply_attention_profile(data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if data.get('source_workflow') == 'samimate':
         data['workflow_variant'] = 'legacy'
     try:
@@ -5079,6 +4919,7 @@ async def run_h3(data: dict[str, Any]):
         "cache_enabled": cache_enabled,
         "cache_threshold": cache_value,
         "attention": str(data.get("attention") or "auto").lower(),
+        "attention_profile": data.get('attention_profile', 'custom'),
         "aspect_ratio": str(data.get("aspect_ratio") or "16:9 (Widescreen)"),
         "filename_prefix": h3_output_prefix(data.get("filename_prefix")),
         "model": active_model,
@@ -5132,6 +4973,10 @@ async def run_h3(data: dict[str, Any]):
     payload["diagnostic_frames"] = as_bool(data.get("diagnostic_frames"), False)
     if new_variant:
         payload['task'] = task + '_20260920'
+    try:
+        validate_attention(payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
     effective_delivery = delivery
     estimated_inline_bytes = 0
     reference_trims = []
@@ -5335,6 +5180,8 @@ ENDPOINT_WORKER_LOG_CACHE: dict = {}
 
 def monitor_settings(endpoint_id):
     runpod_safe_id(endpoint_id)
+    if endpoint_id in RETIRED_ENDPOINT_IDS:
+        raise HTTPException(410, 'This endpoint has been retired')
     s = settings()
     allowed = {s.get(k) for k in ('h3_endpoint_id', 'wan_endpoint_id', 'infinite_endpoint_id')}
     allowed.update(x.get('endpoint_id') for x in load_json(JOB_HISTORY_PATH, []))
@@ -5431,6 +5278,11 @@ def recover_completed_h3_status(endpoint_id: str, job_id: str, s: dict[str, Any]
 @app.get('/api/h3/sampling')
 def h3_sampling_options():
     return H3_SAMPLING
+
+
+@app.get('/api/h3/attention-profiles')
+def h3_attention_profiles():
+    return attention_profile_catalog()
 
 
 @app.get('/api/job/{endpoint_id}/{job_id}/diagnostics')
