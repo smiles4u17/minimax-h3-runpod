@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RunPod Media Console Web</title>
-<link rel="stylesheet" href="/static/styles.css?v=16.00" />
+<link rel="stylesheet" href="/static/styles.css?v=16.11" />
 <link rel="stylesheet" href="/static/workspace.css?v=16.09" />
 </head>
 <body>
@@ -300,7 +300,7 @@
     <div class="fields wide">
       <label title="Main diffusion checkpoint in models/diffusion_models used for first/last-frame generation.">FL2VA Main Model<select id="h3_fl2va_model"><option value="minimax_h3_fl2va_pruned_int8_convrot.safetensors">minimax_h3_fl2va_pruned_int8_convrot.safetensors</option></select></label>
       <label title="Main diffusion checkpoint in models/diffusion_models used for reference-to-video generation.">Ref2VA Main Model<select id="h3_ref2va_model"><option value="minimax_h3_ref2va_pruned_int8_convrot.safetensors">minimax_h3_ref2va_pruned_int8_convrot.safetensors</option></select></label>
-      <label title="Qwen text encoder / CLIP in models/text_encoders on the H3 volume.">Text Encoder / CLIP<select id="h3_text_encoder"><option value="qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors">qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors</option></select></label>
+      <label title="Standard Qwen encoder names adapt to the assigned worker: NVFP4 on Blackwell, INT8 on RTX 4090. Custom encoder names stay explicit. Both standard files must be installed on the volume.">Text Encoder / CLIP<select id="h3_text_encoder"><option value="qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors">qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors</option></select></label>
       <label title="Video decoder VAE in models/vae on the H3 volume.">Video VAE<select id="h3_video_vae"><option value="minimax_h3_video_vae_fp16.safetensors">minimax_h3_video_vae_fp16.safetensors</option></select></label>
       <label title="Audio decoder VAE in models/vae on the H3 volume.">Audio VAE<select id="h3_audio_vae"><option value="minimax_h3_audio_vae_fp32.safetensors">minimax_h3_audio_vae_fp32.safetensors</option></select></label>
       <label title="Quickly configure the stock Turbo workflow or either setting recommended by the 10Eros model author.">Sampling Preset<select id="h3_sampling_preset" onchange="applyH3SamplingPreset(this.value)"><option value="standard20">Standard / no Turbo - 20 steps</option><option value="lightx4">LightX2V - 4 steps (task matched)</option><option value="lightx8">LightX2V - 8 steps (task matched)</option><option value="pdd8">PDD quality / speed - 8 steps (converted LoRA)</option><option value="stock_turbo">Stock H3 Turbo LoRA</option><option value="10eros_multires">10Eros Turbo — Multires</option><option value="10eros_er_sde">10Eros Turbo — ER-SDE</option><option value="custom">Custom (not baseline-tested)</option></select></label>
@@ -565,7 +565,10 @@
   <div class="card" id="pb_videos">
     <h3>Videos</h3>
     <div class="pbChips" id="pb_scene_folders"></div>
-    <div class="pbRow" id="pb_scenes"></div>
+    <div class="pbVideoLayout" id="pb_video_layout">
+      <div class="pbRow" id="pb_scenes"></div>
+      <aside id="pb_scene_panel" class="pbScenePanel" hidden></aside>
+    </div>
     <div class="videoTools" data-prefix="pb"></div>
   </div>
   <div class="card" id="pb_prompt_card">
@@ -579,6 +582,8 @@
       <label class="check"><input id="pb_test_mode" type="checkbox"> Test mode</label>
       <label class="check"><input id="pb_threesome" type="checkbox"> Threesome</label>
       <label class="check"><input id="pb_beta" type="checkbox"> Beta</label>
+      <label class="check" title="MiniMax H3 Character Swap LoRA. Replace only the original woman in Video 1 with the character in Picture 1."><input id="pb_character_swap" type="checkbox"> Character swap</label>
+      <label class="check" title="On: Picture 2 is frame 1 of the clip. Pose and camera lock to it. Identity stays on Picture 1. Off: old mode, Picture 2 stays empty."><input id="pb_opening_frame" type="checkbox" checked> Opening frame</label>
       <button type="button" id="pb_reset_prompt">Reset to baked</button>
     </div>
     <p class="pbNote" id="pb_prompt_note">Pick a subject and a scene. Edits here are for this send only.</p>
@@ -660,7 +665,7 @@
   <pre id="log"></pre>
 </section>
 <script src="/static/app.js?v=15.97"></script>
-<script src="/static/prompt_book.js?v=16.10"></script>
+<script src="/static/prompt_book.js?v=16.13"></script>
 <script src="/static/dashboard.js?v=15.89"></script>
 <script src="/static/h3_job.js?v=16.01"></script>
 <script src="/static/h3_variants.js?v=16.11"></script>

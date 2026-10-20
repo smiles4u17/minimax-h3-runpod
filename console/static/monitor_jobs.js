@@ -4,6 +4,7 @@
   const pending=new Set(),requested=new Set(),errors=new Map();
   const key=j=>j.endpoint_id+':'+j.job_id;
   const element=id=>document.getElementById(id);
+  const duration=ms=>{const minutes=Math.floor(ms/60000);return minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m`:`${minutes}m ${Math.floor(ms/1000)%60}s`};
   function render(){
     const list=element('monitor_request_list');if(!list)return;
     list.replaceChildren();
@@ -15,6 +16,7 @@
       const identity=document.createElement('code');identity.textContent=job.job_id;
       const meta=document.createElement('small');meta.textContent=[job.endpoint_id,job.submitted_at?new Date(job.submitted_at).toLocaleString():'Submission time unavailable',job.duration!=null?job.duration+'s':'',job.seed!=null?'Seed '+job.seed:''].filter(Boolean).join(' · ');
       details.append(title,identity,meta);
+      const timing=document.createElement('small');timing.textContent=[job.queue_ms!=null?'Queue wait '+duration(job.queue_ms):'',job.execution_ms!=null?'Execution '+duration(job.execution_ms):''].filter(Boolean).join(' · ');if(timing.textContent)details.appendChild(timing);
       if(job.prompt){
         const prompt=document.createElement('details'),summary=document.createElement('summary'),full=document.createElement('p');
         prompt.className='monitorRequestPrompt';

@@ -18,7 +18,7 @@ from h3_workflow_options import workflow_options, validate_keyframes, variant_de
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.11-h3-payload-split"
+APP_VERSION = "web-v16.12-gpu-adaptive-reliability"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -67,6 +67,7 @@ SECRET_PATHS = (
     ("model_download", "civitai_token"),
 )
 JOB_HISTORY_LOCK = threading.Lock()
+OUTPUT_SAVE_LOCK = threading.Lock()
 for d in (DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, THUMB_DIR, SAM_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
@@ -97,7 +98,13 @@ def load_json(path: Path, fallback: Any) -> Any:
     return fallback
 
 def save_json(path: Path, data: Any) -> Any:
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Readers must see either the previous document or the complete new one.
+    temp = path.with_name(f'.{path.name}.{uuid.uuid4().hex}.tmp')
+    try:
+        temp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
     return data
 
 def append_limited_json(path: Path, item: dict[str, Any], limit: int = 100) -> list[dict[str, Any]]:
@@ -2104,6 +2111,40 @@ def s3_key_from_volume_path(ref: str, s: dict[str, Any]) -> str:
     return normalized.lstrip("/")
 
 def save_outputs(job_id: str, st: dict[str,Any], s: dict[str,Any], endpoint_id: str = "", target_fps: Any = None) -> list[str]:
+    # Restoring controls and opening the monitor can poll the same completed
+    # job together. Serialize sequence allocation and reuse verified deliveries.
+    out_dir, _ = output_folder_for_endpoint(endpoint_id, s)
+    identity = hashlib.sha256(json.dumps([endpoint_id, job_id, str(out_dir.resolve()), target_fps]).encode()).hexdigest()
+    fingerprint = hashlib.sha256(json.dumps(st.get('output'), sort_keys=True).encode()).hexdigest()
+    receipt_path = DATA_DIR / 'output_deliveries' / (identity + '.json')
+    with OUTPUT_SAVE_LOCK:
+        receipt = load_json(receipt_path, {})
+        if receipt.get('fingerprint') == fingerprint and receipt.get('files'):
+            try:
+                intact = all(Path(f['path']).is_file() and
+                             Path(f['path']).stat().st_size == f['size'] and
+                             Path(f['path']).stat().st_mtime_ns == f['mtime_ns'] for f in receipt['files'])
+            except (OSError, KeyError, TypeError):
+                intact = False
+            if intact:
+                if receipt.get('uploaded_s3'):
+                    st['_uploaded_s3'] = receipt['uploaded_s3']
+                return [f['path'] for f in receipt['files']]
+        saved = _save_outputs(job_id, st, s, endpoint_id, target_fps)
+        if saved and not st.get('_download_errors'):
+            try:
+                receipt_path.parent.mkdir(parents=True, exist_ok=True)
+                files = [{'path': str(p), 'size': p.stat().st_size, 'mtime_ns': p.stat().st_mtime_ns}
+                         for p in map(Path, saved)]
+                save_json(receipt_path, {'fingerprint': fingerprint, 'files': files,
+                                         'uploaded_s3': st.get('_uploaded_s3', [])})
+            except OSError:
+                # Delivered files remain usable if the local receipt cannot be saved.
+                pass
+        return saved
+
+
+def _save_outputs(job_id: str, st: dict[str,Any], s: dict[str,Any], endpoint_id: str = "", target_fps: Any = None) -> list[str]:
     out_dir, prefix = output_folder_for_endpoint(endpoint_id, s); out_dir.mkdir(parents=True, exist_ok=True); saved=[]
     storage_s = storage_settings_for_endpoint(s, endpoint_id)
     errors: list[str] = []
@@ -2251,7 +2292,7 @@ def save_outputs(job_id: str, st: dict[str,Any], s: dict[str,Any], endpoint_id: 
     uploaded = worker_saved_uris or mirror_saved_outputs_to_s3(saved, s3, storage_s, prefix)
     if uploaded:
         st["_uploaded_s3"] = uploaded
-    if errors and not saved:
+    if errors:
         st["_download_errors"] = errors[:30]
     return saved
 
@@ -4545,7 +4586,7 @@ async def run_inf(data: dict[str,Any]):
     if payload["person_count"] != "multi" or not (data.get("audio2_path") or "").strip():
         cleared.append("wav_2")
     remove_media_payload_keys(payload, cleared)
-    job=submit(endpoint,key,payload,s)
+    job = await run_in_threadpool(submit, endpoint, key, payload, s)
     debug = {
         "input_type": payload.get("input_type"),
         "person_count": payload.get("person_count"),
@@ -4708,7 +4749,7 @@ async def run_wan(data: dict[str,Any]):
     remove_media_payload_keys(payload, cleared)
     debug["payload_keys"] = sorted(payload.keys())
     try:
-        job=submit(endpoint,key,payload,s)
+        job = await run_in_threadpool(submit, endpoint, key, payload, s)
     except HTTPException as e:
         record_job_event({"target": "samimate" if data.get("source_workflow") == "samimate" else "wan", "endpoint_id": endpoint, "job_id": None, "status": "SUBMIT_FAILED", "payload_keys": sorted(payload.keys()), "debug": debug, "error": e.detail})
         raise HTTPException(e.status_code, {"message": e.detail, "debug": debug, "payload_keys": sorted(payload.keys())}) from e
@@ -4777,6 +4818,8 @@ def prompt_book_prompt(
     threesome: str = "0",
     subject_b: str = "",
     beta: str = "0",
+    character_swap: str = "0",
+    opening_frame: str = "1",
 ):
     query = urllib.parse.urlencode({
         "subject": subject,
@@ -4791,6 +4834,8 @@ def prompt_book_prompt(
         "threesome": threesome,
         "subject_b": subject_b,
         "beta": beta,
+        "character_swap": character_swap,
+        "opening_frame": opening_frame,
     })
     try:
         baked = prompt_book_h3.book_json("/api/prompt?" + query)
@@ -4968,8 +5013,12 @@ async def run_h3(data: dict[str, Any]):
     prompt = str(data.get("prompt") or "").strip()
     if not prompt:
         raise HTTPException(400, "MiniMax H3 requires a prompt")
-    duration_value = float(data.get("duration") or 2.0)
-    megapixels_value = float(data.get("megapixels") or 0.2)
+    try:
+        duration_value = float(data['duration'] if data.get('duration') is not None else 2.0)
+        megapixels_value = float(data['megapixels'] if data.get('megapixels') is not None else 0.2)
+        cache_value = float(data['cache_threshold'] if data.get('cache_threshold') is not None else 0.18)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, 'H3 duration, megapixels and cache threshold must be numbers') from exc
     turbo_enabled = as_bool(data.get("turbo_enabled"), True)
     seed_value, seed_was_randomized = normalize_seed(-1 if as_bool(data.get("seed_random"), False) else data.get("seed"))
     sampler = str(data.get("sampler") or ("h3_turbo" if turbo_enabled else "res_multistep")).lower()
@@ -4985,7 +5034,6 @@ async def run_h3(data: dict[str, Any]):
         steps_value = validate_h3_steps(data.get("steps", 6 if turbo_enabled else 20))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    cache_value = float(data.get("cache_threshold") or 0.18)
     if not 1 <= duration_value <= 15:
         raise HTTPException(400, "H3 duration must be between 1 and 15 seconds")
     if not 0.2 <= megapixels_value <= 2.0:
@@ -5100,9 +5148,9 @@ async def run_h3(data: dict[str, Any]):
             first_frame = await run_in_threadpool(h3_localize_url, str(data.get("first_frame_path") or "").strip())
             last_frame = await run_in_threadpool(h3_localize_url, str(data.get("last_frame_path") or "").strip())
             effective_delivery, estimated_inline_bytes = h3_effective_delivery(delivery, photo_paths if new_variant else [first_frame, last_frame])
-            payload["first_frame"] = h3_asset_payload(first_frame, "first_frame", effective_delivery, h3_s3)
+            payload["first_frame"] = await run_in_threadpool(h3_asset_payload, first_frame, "first_frame", effective_delivery, h3_s3)
             if last_frame:
-                payload["last_frame"] = h3_asset_payload(last_frame, "last_frame", effective_delivery, h3_s3)
+                payload["last_frame"] = await run_in_threadpool(h3_asset_payload, last_frame, "last_frame", effective_delivery, h3_s3)
         elif task == "r2v":
             references = h3_path_list(data.get("reference_paths"), 9, "H3 R2VA image references")
             videos = h3_path_list(data.get("reference_video_paths"), 3, "H3 R2VA video references")
@@ -5126,18 +5174,18 @@ async def run_h3(data: dict[str, Any]):
                 # Older workers must reject this request, never silently ignore the mask.
                 payload["task"] = "r2v_masked"
                 payload["masked_edit"] = {
-                    "source": h3_asset_payload(edit_paths[0], "samimate_source", effective_delivery, h3_s3),
-                    "mask": h3_asset_payload(edit_paths[1], "samimate_mask", effective_delivery, h3_s3),
+                    "source": await run_in_threadpool(h3_asset_payload, edit_paths[0], "samimate_source", effective_delivery, h3_s3),
+                    "mask": await run_in_threadpool(h3_asset_payload, edit_paths[1], "samimate_mask", effective_delivery, h3_s3),
                     "width": int(data.get("width") or 0), "height": int(data.get("height") or 0),
                 }
-            payload["references"] = [h3_asset_payload(str(path), f"reference_{i + 1}", effective_delivery, h3_s3) for i, path in enumerate(references)]
-            payload["reference_videos"] = [h3_asset_payload(path, f"reference_video_{i + 1}", effective_delivery, h3_s3) for i, path in enumerate(videos)]
+            payload["references"] = [await run_in_threadpool(h3_asset_payload, str(path), f"reference_{i + 1}", effective_delivery, h3_s3) for i, path in enumerate(references)]
+            payload["reference_videos"] = [await run_in_threadpool(h3_asset_payload, path, f"reference_video_{i + 1}", effective_delivery, h3_s3) for i, path in enumerate(videos)]
             video_audio = data.get("reference_video_audio") or []
             if not isinstance(video_audio, list):
                 raise ValueError("H3 R2VA video audio selections must be a list")
             payload["reference_video_audio"] = [as_bool(video_audio[i], True) if i < len(video_audio) else True for i in range(len(videos))]
             payload["reference_video_settings"] = video_options
-            payload["reference_audios"] = [h3_asset_payload(path, f"reference_audio_{i + 1}", effective_delivery, h3_s3) for i, path in enumerate(audios)]
+            payload["reference_audios"] = [await run_in_threadpool(h3_asset_payload, path, f"reference_audio_{i + 1}", effective_delivery, h3_s3) for i, path in enumerate(audios)]
             if audios:
                 payload["audio"] = payload["reference_audios"][0]
                 payload["use_reference_audio_as_output"] = as_bool(data.get("use_reference_audio_as_output"), False)
@@ -5151,7 +5199,7 @@ async def run_h3(data: dict[str, Any]):
             existing = dict(zip([p for p in localized if p], payload.get('references', []))) if task == 'r2v' else {next(p for p in localized if p): payload['first_frame']}
             if task == 'fl2v' and len(localized)>1 and localized[1]:
                 existing[localized[1]] = payload['last_frame']
-            payload['photos'] = [existing.get(p) or h3_asset_payload(p, f'photo_{i+1}', effective_delivery, h3_s3) if p else None for i,p in enumerate(localized)]
+            payload['photos'] = [existing.get(p) or await run_in_threadpool(h3_asset_payload, p, f'photo_{i+1}', effective_delivery, h3_s3) if p else None for i,p in enumerate(localized)]
             payload['keyframe_positions'] = positions
             # Dated workers derive these from photos before building the graph.
             # Python object reuse still serializes Base64 twice in JSON.
@@ -5270,7 +5318,7 @@ async def run_h3(data: dict[str, Any]):
         'reference_audio_paths', 'audio_path', 'video_path', 'image_path', 'source_workflow'
     ) if k in data})
     try:
-        job = submit(endpoint, key, payload, s)
+        job = await run_in_threadpool(submit, endpoint, key, payload, s)
     except HTTPException as e:
         record_job_event({"target": "h3", "endpoint_id": endpoint, "job_id": None, "status": "SUBMIT_FAILED", "payload_keys": sorted(payload.keys()), "debug": debug, "error": e.detail})
         raise HTTPException(e.status_code, {"message": e.detail, "debug": debug, "payload_keys": sorted(payload.keys())}) from e
@@ -5512,8 +5560,9 @@ def cancel_job(endpoint_id: str, job_id: str):
 
 @app.get("/api/job/{endpoint_id}/{job_id}")
 def job_status(endpoint_id: str, job_id: str):
-    s=settings(); key=s.get("runpod_api_key")
-    if not key: raise HTTPException(400,"RunPod key missing")
+    s = monitor_settings(endpoint_id)
+    runpod_safe_id(job_id)
+    key = s['runpod_api_key']
     event_target = "h3" if endpoint_id == s.get("h3_endpoint_id") else ""
     event = job_event_for(job_id, event_target) if event_target else {}
     target_fps = ((event.get("debug") or {}).get("fps") if isinstance(event.get("debug"), dict) else None)

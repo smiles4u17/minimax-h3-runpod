@@ -8,6 +8,13 @@ from job_list import sent_requests, merge_live_requests, sorted_requests
 
 
 class JobListTests(unittest.TestCase):
+    def test_worker_error_is_failed_and_queue_duration_is_retained(self):
+        rows = {}
+        merge_live_requests(rows, [None, {'id': 'failed', 'status': 'COMPLETED',
+                            'output': {'error': 'CUDA failure'}, 'delayTime': 9000}], 'ep')
+        self.assertEqual(rows[('ep', 'failed')]['status'], 'FAILED')
+        self.assertEqual(rows[('ep', 'failed')]['queue_ms'], 9000)
+
     def test_live_queue_includes_unrecorded_jobs_and_disables_missing_requests(self):
         rows = {('ep', 'old'): {'endpoint_id': 'ep', 'job_id': 'old', 'status': 'SUBMITTED'},
                 ('ep', 'done'): {'endpoint_id': 'ep', 'job_id': 'done', 'status': 'COMPLETED'}}

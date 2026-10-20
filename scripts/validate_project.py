@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -23,6 +24,17 @@ REQUIRED_CUSTOM = {
 
 def validate(path: Path) -> None:
     workflow = json.loads(path.read_text(encoding="utf-8"))
+    # September workflow files describe retained editor widgets. Executable
+    # graphs are built by workflow_variants.py and tested separately.
+    if 'source_file' in workflow:
+        assert isinstance(workflow.get('source_file'), str) and workflow['source_file']
+        assert re.fullmatch(r'[0-9a-f]{64}', workflow.get('source_sha256', '')), path.name
+        nodes = workflow.get('nodes')
+        assert isinstance(nodes, dict) and nodes, f'{path.name}: empty widget manifest'
+        for node_id, node in nodes.items():
+            assert isinstance(node, dict) and isinstance(node.get('class_type'), str), (path.name, node_id)
+            assert isinstance(node.get('widgets'), list), (path.name, node_id)
+        return
     ids = set(workflow)
     classes = {node["class_type"] for node in workflow.values()}
     assert "SolAttnMiniMaxH3" not in classes
@@ -40,7 +52,8 @@ def validate(path: Path) -> None:
     assert custom <= CUSTOM_ALLOWED
 
 
-for workflow_path in sorted((ROOT / "workflows").glob("*.json")):
-    validate(workflow_path)
-    print(f"OK {workflow_path.name}")
+if __name__ == '__main__':
+    for workflow_path in sorted((ROOT / "workflows").glob("*.json")):
+        validate(workflow_path)
+        print(f"OK {workflow_path.name}")
 

@@ -570,11 +570,27 @@ class WorkflowTests(unittest.TestCase):
         value = {"92": {"videos": [{"filename": "clip.mp4", "type": "output"}]}}
         self.assertEqual(handler._find_file_descriptors(value)[0]["filename"], "clip.mp4")
 
-    def test_auto_attention_uses_sage_only_on_sm120(self) -> None:
+    def test_auto_attention_adapts_to_supported_gpu(self) -> None:
         with mock.patch.dict(handler.os.environ, {"ATTENTION_MODE": "auto"}):
-            self.assertEqual(handler._attention_mode("auto", (8, 9)), "native")
+            self.assertEqual(handler._attention_mode("auto", (8, 9)), "sage")
             self.assertEqual(handler._attention_mode("auto", (10, 0)), "native")
             self.assertEqual(handler._attention_mode("auto", (12, 0)), "sage")
+            with mock.patch.object(handler, '_sage_available', return_value=False):
+                self.assertEqual(handler._attention_mode('auto', (8, 9)), 'native')
+                with self.assertRaisesRegex(RuntimeError, 'not importable'):
+                    handler._attention_mode('sage', (8, 9))
+
+    def test_saved_standard_encoder_adapts_to_actual_worker(self):
+        (handler.COMFY_ROOT / 'models/text_encoders' / handler.UNIVERSAL_ENCODER).touch()
+        for requested in ('auto', handler.BLACKWELL_ENCODER, handler.UNIVERSAL_ENCODER):
+            self.assertEqual(handler._select_encoder((8, 9), requested), handler.UNIVERSAL_ENCODER)
+            self.assertEqual(handler._select_encoder((12, 0), requested), handler.BLACKWELL_ENCODER)
+        self.assertEqual(handler._select_encoder((8, 9), 'custom.safetensors'), 'custom.safetensors')
+        with mock.patch.object(handler, '_gpu_info', return_value=('RTX 4090', (8, 9))):
+            graph, metadata = handler.build_preset({'task': 't2v', 'prompt': 'robot', 'clip': handler.BLACKWELL_ENCODER})
+        self.assertEqual(metadata['text_encoder'], handler.UNIVERSAL_ENCODER)
+        self.assertEqual(metadata['attention'], 'sage')
+        self.assertIn('145', graph)
 
     def test_blackwell_only_encoder_rejected_on_older_gpu(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "MODEL_PROFILE=dual or universal"):

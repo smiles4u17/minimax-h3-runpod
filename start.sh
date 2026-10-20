@@ -17,6 +17,14 @@ if [[ "$GPU_MEMORY_MB" =~ ^[0-9]+$ ]]; then
   export H3_GPU_MEMORY_MB="$GPU_MEMORY_MB"
 fi
 
+# Select from the actual allocated GPU, and inherit the same path in the
+# handler and any replacement ComfyUI process. No runtime pip installs.
+SAGE_PACKAGE_PATH="$(python3.12 /opt/minimax-h3/scripts/select_sage_runtime.py)"
+if [[ -n "$SAGE_PACKAGE_PATH" ]]; then
+  export PYTHONPATH="$SAGE_PACKAGE_PATH${PYTHONPATH:+:$PYTHONPATH}"
+  echo "Using the dedicated SM89 SageAttention build for this Ada worker."
+fi
+
 declare -a LOW_VRAM_ARGS=()
 LOW_VRAM_MODE="${H3_LOW_VRAM_MODE:-auto}"
 LOW_VRAM_THRESHOLD_MB="${H3_LOW_VRAM_THRESHOLD_MB:-49152}"

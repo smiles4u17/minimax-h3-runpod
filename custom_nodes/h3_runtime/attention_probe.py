@@ -4,6 +4,34 @@ import sys
 import torch
 
 
+def smoke():
+    """Exercise the production KJ dispatch against SDPA without model loading."""
+    import sageattention
+    registry = importlib.import_module('nodes').NODE_CLASS_MAPPINGS
+    production = sys.modules[registry['MiniMaxH3MemoryEfficientSageAttentionPatch'].__module__]
+    checks = []
+    with torch.inference_mode(), torch.random.fork_rng(devices=[torch.cuda.current_device()]):
+        torch.manual_seed(20261019)
+        for dtype in (torch.float16, torch.bfloat16):
+            for length in (257, 513):
+                fused = torch.randn((1, length, 3, 4, 128), device='cuda', dtype=dtype)
+                q, k, v = (fused[:, :, i] for i in range(3))
+                expected = torch.nn.functional.scaled_dot_product_attention(
+                    q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)).transpose(1, 2)
+                # KJ mean-centers K in-place; compute the reference first.
+                actual = production._sageattn_int8_fp8_nhd([q, k, v], dtype)
+                torch.cuda.synchronize()
+                relative_rmse = float(((actual.float() - expected.float()).square().mean()
+                                       / expected.float().square().mean().clamp_min(1e-12)).sqrt().item())
+                finite = bool(torch.isfinite(actual).all().item())
+                checks.append({'dtype': str(dtype), 'sequence': length,
+                               'relative_rmse': relative_rmse, 'passed': finite and relative_rmse < 0.1})
+    return {'gpu': torch.cuda.get_device_name(0),
+            'capability': list(torch.cuda.get_device_capability(0)),
+            'sage_package': sageattention.__file__, 'mode': 'smoke',
+            'checks': checks, 'passed': all(item['passed'] for item in checks)}
+
+
 def probe():
     from sageattention.core import per_channel_fp8, per_warp_int8_cuda
     registry = importlib.import_module('nodes').NODE_CLASS_MAPPINGS

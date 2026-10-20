@@ -54,18 +54,24 @@ def sent_requests(history, log_directory):
 def merge_live_requests(rows, provider, endpoint):
     present = set()
     for request in provider:
+        if not isinstance(request, dict):
+            continue
         job = request.get('id')
         if not job:
             continue
         present.add(job)
         row = rows.setdefault((endpoint, job), {'endpoint_id': endpoint, 'job_id': job})
         status = request.get('status', 'UNKNOWN')
+        output = request.get('output')
+        if status == 'COMPLETED' and isinstance(output, dict) and output.get('error'):
+            status = 'FAILED'
         if row.get('status') in TERMINAL and status not in TERMINAL:
             status = row['status']
         elif status == 'IN_PROGRESS' and isinstance(request.get('output'), dict) and request['output'].get('stage') == 'completed':
             status = 'FINALIZING'
         row.update(status=status, live=True,
-                   worker_id=request.get('workerId'), execution_ms=request.get('executionTime'))
+                   worker_id=request.get('workerId'), execution_ms=request.get('executionTime'),
+                   queue_ms=request.get('delayTime'))
     for (row_endpoint, job), row in rows.items():
         if row_endpoint == endpoint and job not in present:
             row['live'] = False

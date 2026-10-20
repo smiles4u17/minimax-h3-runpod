@@ -44,7 +44,7 @@ LOW_VRAM_THRESHOLD_GB = float(os.environ.get("H3_LOW_VRAM_THRESHOLD_GB", "48"))
 
 BLACKWELL_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 UNIVERSAL_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-SAGE_CAPABILITIES = {(12, 0)}
+SAGE_CAPABILITIES = {(8, 9), (12, 0)}
 SAMPLERS = set(json.loads((Path(__file__).parent / 'h3_sampling.json').read_text())['samplers'])
 SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
 
@@ -232,10 +232,14 @@ def _effective_beta5_model(requested: str, payload: dict[str, Any], total_vram_g
     return quantized
 
 
-def _select_encoder(capability: tuple[int, int] | None) -> str:
+def _select_encoder(capability: tuple[int, int] | None, requested: str = '') -> str:
     forced = os.environ.get("TEXT_ENCODER_FILE")
     if forced:
         return forced
+    # Standard names historically came from the console's saved default, not
+    # an intentional GPU pin. Resolve either member of that pair per worker.
+    if requested and requested.lower() != 'auto' and requested not in {BLACKWELL_ENCODER, UNIVERSAL_ENCODER}:
+        return requested
     is_blackwell = bool(capability and capability[0] >= 10)
     if is_blackwell and _model_exists("text_encoders", BLACKWELL_ENCODER):
         return BLACKWELL_ENCODER
@@ -252,6 +256,7 @@ def _select_encoder(capability: tuple[int, int] | None) -> str:
 def _sage_available() -> bool:
     try:
         import sageattention  # noqa: F401
+        from sageattention import _fused, _qattn_sm89  # noqa: F401
 
         return True
     except Exception:
@@ -368,7 +373,7 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     default_model = workflow["127"]["inputs"]["unet_name"]
     default_video_vae = workflow["119"]["inputs"]["vae_name"]
     default_audio_vae = workflow["120"]["inputs"]["vae_name"]
-    selected_encoder = str(payload.get("clip") or "").strip() or _select_encoder(capability)
+    selected_encoder = _select_encoder(capability, str(payload.get("clip") or "").strip())
     requested_model = _model_name(payload, "model", "diffusion_models", default_model, validate_exists=False)
     effective_model = _effective_beta5_model(requested_model, payload, total_vram_gb)
     workflow["127"]["inputs"]["unet_name"] = _model_name({"model": effective_model}, "model", "diffusion_models", default_model)
@@ -980,7 +985,7 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         _ensure_comfy_ready()
         if payload.get('action') == 'attention_check':
             monitor.stage('attention_address_check')
-            checked = requests.post(COMFY_URL + '/h3/attention-check', json={}, timeout=120)
+            checked = requests.post(COMFY_URL + '/h3/attention-check', json={'mode': payload.get('attention_check_mode', 'address')}, timeout=120)
             checked.raise_for_status()
             return {'attention_validation': checked.json()}
         inventory = runtime_inventory(COMFY_URL, VOLUME_ROOT)

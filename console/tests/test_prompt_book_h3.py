@@ -193,7 +193,8 @@ class PromptBookH3Tests(unittest.TestCase):
         catalog = self.catalog()
         catalog["videos"][0]["file"] = str(scene)
         probe = mock.Mock(stdout="", stderr="Input #0, mov, from 'silent.mp4':\n  Stream #0:0: Video: h264")
-        with mock.patch.object(prompt_book_h3.subprocess, "run", return_value=probe):
+        with (mock.patch.object(prompt_book_h3.subprocess, "run", return_value=probe),
+              mock.patch.object(prompt_book_h3, 'grab_opening_frame', return_value='')):
             request, _ = prompt_book_h3.build_prompt_book_h3_request(
                 {"subject_id": "ada", "video_id": "clip"}, catalog=catalog, baked={"prompt": "Test prompt"})
         self.assertEqual(request["reference_video_audio"], [False])

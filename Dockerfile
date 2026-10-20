@@ -4,6 +4,22 @@ ARG WORKER_BASE=runpod/comfyui:1.4.7-cuda13.0
 ARG SAGEATTENTION_WHEEL_URL=https://huggingface.co/harryming/sageattention-blackwell-wheels/resolve/main/wheels/torch2.10.0-cu130-cp312-blackwell/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
 ARG SAGEATTENTION_WHEEL_SHA256=b6a1c65287a1e7d802c98bf1b7267446823a15dc160b4beed3046d118bc45570
 
+# Compile Ada separately; do not alter the validated Blackwell wheel below.
+# The CUDA compiler and source tree stay out of the production image.
+FROM ${WORKER_BASE} AS sage-ada-builder
+ARG SAGEATTENTION_REF=eb615cf6cf4d221338033340ee2de1c37fbdba4a
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential python3.12-dev cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-cccl-13-0 cuda-driver-dev-13-0 \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init /tmp/sageattention \
+    && git -C /tmp/sageattention remote add origin https://github.com/thu-ml/SageAttention.git \
+    && git -C /tmp/sageattention fetch --depth 1 origin "${SAGEATTENTION_REF}" \
+    && git -C /tmp/sageattention checkout --detach FETCH_HEAD \
+    && python3.12 -m pip install --no-cache-dir ninja wheel \
+    && cd /tmp/sageattention \
+    && CUDA_HOME=/usr/local/cuda-13.0 TORCH_CUDA_ARCH_LIST=8.9 MAX_JOBS=2 EXT_PARALLEL=1 \
+       NVCC_APPEND_FLAGS=--threads=1 python3.12 -m pip wheel --no-build-isolation --no-deps . -w /wheels
+
 FROM ${WORKER_BASE} AS runtime
 ARG SAGEATTENTION_WHEEL_URL
 ARG SAGEATTENTION_WHEEL_SHA256
@@ -84,6 +100,11 @@ RUN set -eux; \
     python3.12 -m pip install --no-cache-dir --no-deps "$wheel"; \
     rm -f "$wheel"; \
     python3.12 -c "import importlib.metadata as m, torch, sageattention; assert torch.__version__.startswith('2.10.0+cu130'), torch.__version__; print(torch.__version__, torch.version.cuda, m.version('sageattention'))"
+
+COPY --from=sage-ada-builder /wheels /tmp/sage-sm89-wheels
+RUN python3.12 -m pip install --no-cache-dir --no-deps --target /opt/minimax-h3/sage-sm89 /tmp/sage-sm89-wheels/*.whl \
+    && PYTHONPATH=/opt/minimax-h3/sage-sm89 python3.12 -c "import sageattention; from sageattention import _fused, _qattn_sm89; assert sageattention.__file__.startswith('/opt/minimax-h3/sage-sm89/'), sageattention.__file__; print('Ada Sage extensions imported:', sageattention.__file__)" \
+    && rm -rf /tmp/sage-sm89-wheels
 
 COPY requirements-handler.txt /opt/minimax-h3/requirements-handler.txt
 RUN python3.12 -m pip install --no-cache-dir \

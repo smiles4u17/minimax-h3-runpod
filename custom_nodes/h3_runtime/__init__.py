@@ -51,7 +51,13 @@ NODE_CLASS_MAPPINGS = {'H3ReferenceVideoScale': H3ReferenceVideoScale}
 
 @PromptServer.instance.routes.post('/h3/attention-check')
 async def attention_check(request):
-    from .attention_probe import probe
-    result = probe()
-    torch.cuda.empty_cache()
-    return web.json_response(result)
+    from .attention_probe import probe, smoke
+    data = await request.json()
+    mode = data.get('mode', 'address')
+    if mode not in {'address', 'smoke'}:
+        return web.json_response({'error': 'mode must be address or smoke'}, status=400)
+    try:
+        result = smoke() if mode == 'smoke' else probe()
+        return web.json_response(result)
+    finally:
+        torch.cuda.empty_cache()

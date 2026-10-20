@@ -16,6 +16,26 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_h3_numeric_validation_preserves_zero_cache_threshold(self):
+        data = {'settings': {'runpod_api_key': 'key', 'h3_endpoint_id': 'test'},
+                'task': 't2v', 'prompt': 'A toy robot', 'turbo_enabled': False,
+                'steps': 8, 'sampler': 'euler', 'cache_threshold': 0}
+        with mock.patch.object(media_console, 'configured_s3_helper', return_value=object()):
+            result = self.client.post('/api/payload/preview/h3', json=data)
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json()['payload']['cache_threshold'], 0)
+            for name in ('duration', 'megapixels', 'cache_threshold'):
+                for value in ('invalid', 0 if name != 'cache_threshold' else 2):
+                    result = self.client.post('/api/payload/preview/h3', json={**data, name: value})
+                    self.assertEqual(result.status_code, 400, result.text)
+
+    def test_job_status_rejects_unconfigured_endpoint_before_provider_call(self):
+        with (mock.patch.object(media_console, 'monitor_settings', side_effect=media_console.HTTPException(400, 'not configured')),
+              mock.patch.object(media_console, 'status') as status):
+            result = self.client.get('/api/job/unknown/job')
+        self.assertEqual(result.status_code, 400)
+        status.assert_not_called()
+
     def test_folder_listing_does_not_probe_videos(self):
         root = Path(self.temp_dir.name)
         (root / 'example.mp4').write_bytes(b'video')

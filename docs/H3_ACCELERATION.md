@@ -1,5 +1,28 @@
 # H3 attention and generation recipes
 
+## GPU-adaptive Sage runtime
+
+Workers select acceleration from their allocated device, rather than the pool
+name in the endpoint configuration. SM89 (RTX 4090) uses SageAttention 2.2.0
+built from upstream `eb615cf6cf4d221338033340ee2de1c37fbdba4a` for CUDA 13 / Torch
+2.10.0. Its isolated package is selected before ComfyUI and the handler start.
+SM120 (RTX 5090 / RTX PRO 4500 Blackwell) retains the existing checksum-pinned
+Blackwell wheel and Q/K/V CUDA address guards. Unsupported architectures use
+native attention in auto mode; an explicit unavailable Sage request fails clearly.
+
+The two standard Qwen encoder names resolve per allocated GPU, including old
+queued requests carrying the console's NVFP4 default: Blackwell uses NVFP4 when
+installed; Ada requires the universal INT8 encoder on the volume. A custom
+encoder name and the explicit `TEXT_ENCODER_FILE` operator override are retained.
+Missing compatible weights fail before model execution. Do not enable the Ada
+pool until the universal encoder is staged and stored-byte SHA256 verified.
+
+Use `{"action":"attention_check","attention_check_mode":"smoke"}` for a
+generation-free GPU check of the actual KJ production dispatch in fp16 and bf16
+against PyTorch SDPA, including non-aligned sequence lengths. The legacy
+`address` check remains available for the large fused-stride regression.
+Passing a build/import or a mocked routing test does not prove GPU execution.
+
 The pinned ComfyUI commit `1f641fd9337f0ec4d635a28415a8d25a8d15f753`
 descends from v0.35.0 (`40c4fcdf513a4523e39d54a9d391908af8df8171`). It already
 includes the masked velocity correction, cgroup RAM accounting, native sparse
