@@ -4,8 +4,9 @@
 
 Workers select acceleration from their allocated device, rather than the pool
 name in the endpoint configuration. SM89 (RTX 4090) uses SageAttention 2.2.0
-built from upstream `eb615cf6cf4d221338033340ee2de1c37fbdba4a` for CUDA 13 / Torch
-2.10.0. Its isolated package is selected before ComfyUI and the handler start.
+from the official Comfy-Org Linux Python 3.12 / CUDA 13 / Torch 2.10 wheel,
+SHA256 `f0f8a1b9ba89719ab69c4481c1c94e959c4950d53f92bf0c96e3652e81544b21`.
+Its isolated package is selected before ComfyUI and the handler start.
 SM120 (RTX 5090 / RTX PRO 4500 Blackwell) retains the existing checksum-pinned
 Blackwell wheel and Q/K/V CUDA address guards. Unsupported architectures use
 native attention in auto mode; an explicit unavailable Sage request fails clearly.
