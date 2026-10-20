@@ -38,6 +38,10 @@ class SecurityAndH3Tests(unittest.TestCase):
 
     def test_folder_listing_does_not_probe_videos(self):
         root = Path(self.temp_dir.name)
+        for key, value in [('DATA_DIR', root), ('JOB_HISTORY_PATH', root / 'job_history.json'), ('GENERATION_LOG_DIR', root / 'generation_logs')]:
+            patcher = mock.patch.object(media_console, key, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         (root / 'example.mp4').write_bytes(b'video')
         with mock.patch.object(media_console, 'video_probe', side_effect=AssertionError('listing spawned ffprobe')) as probe:
             listing = media_console.browse(str(root), media_type='Videos')
