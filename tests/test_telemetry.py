@@ -20,6 +20,33 @@ class TelemetryTests(unittest.TestCase):
         self.clock.stop()
         self.temp.cleanup()
 
+    def test_node_timings_keep_started_at_and_separate_two_sampler_nodes(self):
+        started = self.m.state['started_at']
+        self.m.node_names = {'1': 'SamplerCustomAdvanced', '2': 'SamplerCustomAdvanced'}
+        self.m.stage('executing', node='1')
+        self.now.return_value = 20
+        self.m.stage('sampling', node='1', step=1, total_steps=8)
+        self.now.return_value = 100
+        self.m.stage('executing', node='2')
+        self.now.return_value = 1100
+        self.m.stage('completed')
+        self.assertEqual(self.m.state['node_timings']['1']['seconds'], 100)
+        self.assertEqual(self.m.state['node_timings']['2']['seconds'], 1000)
+        self.assertEqual(self.m.state['started_at'], started)
+        self.assertIn('finished_at', self.m.state)
+        self.now.return_value = 1200
+        self.m.stage('completed')
+        self.assertEqual(self.m.state['node_timings']['2']['seconds'], 1000)
+
+    def test_terminal_snapshot_never_sends_async_in_progress_packet(self):
+        import types
+        progress = mock.Mock()
+        self.m.state['stage'] = 'completed'
+        with mock.patch.dict(sys.modules, {'runpod': types.SimpleNamespace(serverless=types.SimpleNamespace(progress_update=progress))}), mock.patch('builtins.print'):
+            self.m._publish(force=True)
+        progress.assert_not_called()
+        self.assertEqual(json.loads(self.m.path.read_text())['stage'], 'completed')
+
     def test_progress_is_prompt_scoped_and_stage_specific(self):
         self.m.prompt_id='ours'
         self.m.consume({'type':'progress','data':{'prompt_id':'other','value':4,'max':8}})

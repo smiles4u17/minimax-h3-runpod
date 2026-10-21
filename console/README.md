@@ -22,7 +22,7 @@ http://YOUR-PC-LAN-IP:8765
 
 The LAN script prints a generated username/password. Remote browsers must use those credentials; requests from this PC remain password-free. If Windows Firewall prompts, allow access on Private networks only.
 
-Current app version: `web-v16.14-attention-profiles`
+Current app version: `web-v16.15-durable-job-status`
 
 ## Main Workflows
 

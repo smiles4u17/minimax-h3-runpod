@@ -19,7 +19,7 @@
     stage.textContent=`${d.stage.replaceAll('_',' ')}${d.node?' · '+(d.node_name||'node '+d.node):''}${d.total_steps?' · step '+d.step+' / '+d.total_steps:''} · ${d.worker_id||'worker'} · updated ${age}s ago${d.oom?' · OUT OF MEMORY':''}${d.refresh_worker?' · worker refresh requested':''}`;
     bar.hidden=!d.total_steps;if(d.total_steps)bar.value=100*Number(d.step)/Number(d.total_steps);
     if(d.logs?.length)document.getElementById('monitor_logs').textContent=d.logs.join('\n');
-    document.getElementById('monitor_details').textContent=JSON.stringify({models:d.models,capabilities:d.capabilities,max_runtime_seconds:d.max_seconds,idle_timeout_seconds:d.idle_seconds,inactive_seconds:d.inactive_seconds,error:d.error,events:d.events},null,2);
+    document.getElementById('monitor_details').textContent=JSON.stringify({started_at:d.started_at,finished_at:d.finished_at,elapsed_seconds:d.elapsed_seconds,node_timings:d.node_timings,metadata:d.metadata,models:d.models,capabilities:d.capabilities,max_runtime_seconds:d.max_seconds,idle_timeout_seconds:d.idle_seconds,inactive_seconds:d.inactive_seconds,error:d.error,events:d.events},null,2);
   }
   async function refreshMonitor(forceLogs=false){
     const j=jobs.get(selected);if(!j||busy)return;busy=true;

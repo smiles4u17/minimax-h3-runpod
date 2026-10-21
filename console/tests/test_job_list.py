@@ -8,6 +8,38 @@ from job_list import sent_requests, merge_live_requests, sorted_requests
 
 
 class JobListTests(unittest.TestCase):
+    def test_expired_bulk_status_recovers_verified_completion_without_downloading(self):
+        app.REQUEST_RECOVERY_CACHE.clear()
+        row = {'endpoint_id': 'ep', 'job_id': 'expired', 'status': 'SUBMITTED'}
+        response = mock.Mock()
+        response.json.return_value = {'requests': []}
+        with (mock.patch.object(app, 'settings', return_value={'h3_endpoint_id': 'ep', 'runpod_api_key': 'key'}),
+              mock.patch.object(app, 'sent_requests', side_effect=lambda *a: {('ep', 'expired'): dict(row)}),
+              mock.patch.object(app.requests, 'get', return_value=response),
+              mock.patch.object(app, 'recover_completed_h3_status', return_value={'status': 'COMPLETED'}) as recover,
+              mock.patch.object(app, 'read_job_diagnostics', return_value={'elapsed_seconds': 1414, 'worker_id': 'gpu-worker', 'updated_at': '2026-10-21T20:09:16Z'}),
+              mock.patch.object(app, 'save_outputs') as download):
+            for _ in range(2):
+                result = app.get_sent_requests(force=True)['items'][0]
+                self.assertEqual(result['status'], 'COMPLETED')
+                self.assertEqual(result['execution_ms'], 1414000)
+                self.assertEqual(result['status_source'], 'verified_volume_output')
+                self.assertFalse(result['can_cancel'])
+            recover.assert_called_once()
+            download.assert_not_called()
+        app.REQUEST_RECOVERY_CACHE.clear()
+
+    def test_absent_or_unverified_completion_stays_unavailable(self):
+        app.REQUEST_RECOVERY_CACHE.clear()
+        response = mock.Mock()
+        response.json.return_value = {'requests': []}
+        with (mock.patch.object(app, 'settings', return_value={'h3_endpoint_id': 'ep', 'runpod_api_key': 'key'}),
+              mock.patch.object(app, 'sent_requests', return_value={('ep', 'missing'): {'endpoint_id': 'ep', 'job_id': 'missing', 'status': 'SUBMITTED'}}),
+              mock.patch.object(app.requests, 'get', return_value=response),
+              mock.patch.object(app, 'recover_completed_h3_status', return_value=None)):
+            self.assertEqual(app.get_sent_requests(force=True)['items'][0]['status'], 'UNAVAILABLE')
+        app.REQUEST_RECOVERY_CACHE.clear()
+
     def test_worker_error_is_failed_and_queue_duration_is_retained(self):
         rows = {}
         merge_live_requests(rows, [None, {'id': 'failed', 'status': 'COMPLETED',

@@ -19,7 +19,7 @@ from h3_workflow_options import workflow_options, validate_keyframes, variant_de
 import prompt_book_h3
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.14-attention-profiles"
+APP_VERSION = "web-v16.15-durable-job-status"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -2935,6 +2935,7 @@ def get_job_history():
 
 JOB_REQUEST_CACHE = {}
 JOB_REQUEST_LOCK = threading.Lock()
+REQUEST_RECOVERY_CACHE: dict = {}
 
 
 @app.get('/api/jobs/requests')
@@ -2971,6 +2972,44 @@ def get_sent_requests(force: bool = False):
                     warnings.append(error)
                 else:
                     merge_live_requests(rows, records, endpoint)
+        # Bulk provider lists expire completed records. Recover a bounded recent
+        # set from durable diagnostics and exact output HEADs, without media GETs.
+        h3_endpoint = s.get('h3_endpoint_id')
+        candidates = [row for row in sorted_requests(rows)
+                      if row.get('endpoint_id') == h3_endpoint and row.get('status') == 'UNAVAILABLE'][:40]
+        recovery_key = (fingerprint, json.dumps(s.get('h3_storage') or {}, sort_keys=True))
+        def recover_row(row):
+            identity = (recovery_key, row['job_id'])
+            cached = REQUEST_RECOVERY_CACHE.get(identity)
+            if cached and time.monotonic() - cached[0] < (3600 if cached[1] else 300):
+                return row, cached[1]
+            recovered = recover_completed_h3_status(h3_endpoint, row['job_id'], s)
+            result = None
+            if recovered:
+                diagnostic = read_job_diagnostics(h3_endpoint, row['job_id'], s)
+                elapsed = diagnostic.get('elapsed_seconds')
+                result = {'status': 'COMPLETED', 'status_source': 'verified_volume_output',
+                          'worker_id': diagnostic.get('worker_id'),
+                          'completed_at': diagnostic.get('finished_at') or diagnostic.get('updated_at')}
+                if isinstance(elapsed, (int, float)) and elapsed >= 0:
+                    result['execution_ms'] = round(elapsed * 1000)
+            REQUEST_RECOVERY_CACHE[identity] = (time.monotonic(), result)
+            return row, result
+        if candidates:
+            # Cached outcomes do not consume the eight fresh storage lookups.
+            cached_rows, fresh_rows = [], []
+            for row in candidates:
+                cached = REQUEST_RECOVERY_CACHE.get((recovery_key, row['job_id']))
+                if cached and time.monotonic() - cached[0] < (3600 if cached[1] else 300):
+                    cached_rows.append(row)
+                elif len(fresh_rows) < 8:
+                    fresh_rows.append(row)
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for row, outcome in pool.map(recover_row, cached_rows + fresh_rows):
+                    if outcome:
+                        row.update(outcome)
+        if len(REQUEST_RECOVERY_CACHE) > 2000:
+            REQUEST_RECOVERY_CACHE.clear()
         items = sorted_requests(rows)
         for item in items:
             item['can_cancel'] = item.get('live') is True and item.get('status') in ('IN_QUEUE', 'IN_PROGRESS')

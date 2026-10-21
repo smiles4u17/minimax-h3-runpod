@@ -39,7 +39,10 @@ class JobTelemetry:
         self.max_seconds, self.idle_seconds = max_seconds, idle_seconds
         self.state = {'schema': 1, 'job_id': str(job.get('id', self.client_id)),
                       'worker_id': os.environ.get('RUNPOD_POD_ID', ''), 'stage': 'accepted',
-                      'max_seconds': max_seconds, 'idle_seconds': idle_seconds, 'events': []}
+                      'max_seconds': max_seconds, 'idle_seconds': idle_seconds, 'events': [],
+                      'started_at': datetime.now(timezone.utc).isoformat(), 'node_timings': {}}
+        self.active_node = None
+        self.active_node_started = self.started
         safe_id = re.sub(r'[^A-Za-z0-9_-]', '_', self.state['job_id'])
         self.path = self.root / 'diagnostics' / 'h3' / f'{safe_id}.json'
         self.log_path = Path(os.environ.get('H3_COMFY_LOG', '/tmp/h3-comfy.log'))
@@ -62,13 +65,27 @@ class JobTelemetry:
             changed = name != self.state.get('stage') or any(self.state.get(k) != v for k, v in fields.items())
             if changed:
                 self.last_activity = time.monotonic()
+            now = time.monotonic()
+            node = str(fields.get('node') or self.state.get('node') or '')
+            terminal = name in {'completed', 'failed', 'error', 'invalid_input', 'diagnostics_complete', 'watchdog_expired'}
+            if self.active_node and (node != self.active_node or terminal):
+                timing = self.state['node_timings'].setdefault(self.active_node, {'seconds': 0, 'calls': 0})
+                timing['seconds'] = round(timing['seconds'] + now - self.active_node_started, 3)
+                timing['calls'] += 1
+                timing['name'] = self.node_names.get(self.active_node, '')
+                self.active_node = None
+            if node and not terminal and node != self.active_node:
+                self.active_node, self.active_node_started = node, now
+            if terminal:
+                self.state.setdefault('finished_at', datetime.now(timezone.utc).isoformat())
             self.state.update(stage=name, **fields)
             if name != 'sampling':
                 self.state.pop('step', None)
                 self.state.pop('total_steps', None)
-            self.state['events'].append({'time': datetime.now(timezone.utc).isoformat(), 'message': name})
+            if changed:
+                self.state['events'].append({'time': datetime.now(timezone.utc).isoformat(), 'message': name})
             self.state['events'] = self.state['events'][-40:]
-        self.publish(force=name != 'sampling')
+        self.publish(force=changed and name != 'sampling')
 
     def start(self):
         # Connect before /prompt so that even the first model-loading event is captured.
@@ -173,7 +190,7 @@ class JobTelemetry:
             temp.replace(self.path)
         except OSError as exc:
             print('H3 diagnostics write failed: ' + redact(exc), flush=True)
-        compact = {k: v for k, v in snapshot.items() if k not in ('logs', 'events', 'models', 'capabilities', 'metadata')}
+        compact = {k: v for k, v in snapshot.items() if k not in ('logs', 'events', 'models', 'capabilities', 'metadata', 'node_timings')}
         signature = tuple(compact.get(k) for k in ('stage', 'node', 'step', 'total_steps', 'error'))
         terminal = compact.get('stage') in ('completed', 'failed', 'error', 'invalid_input', 'diagnostics_complete', 'watchdog_expired')
         if not terminal and now - self.last_progress_publish < 60 and (signature == self.last_progress_signature or now - self.last_progress_publish < 5):
@@ -181,6 +198,11 @@ class JobTelemetry:
         self.last_progress_publish = now
         self.last_progress_signature = signature
         print('H3_PROGRESS ' + json.dumps(compact), flush=True)
+        # SDK progress_update sends IN_PROGRESS asynchronously. A final progress
+        # packet can arrive after the real result and overwrite terminal status.
+        # Keep terminal snapshots on disk/stdout; let the SDK final result own status.
+        if terminal:
+            return
         # RunPod displays this in its status response and Console job view.
         try:
             import runpod
