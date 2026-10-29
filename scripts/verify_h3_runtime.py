@@ -24,6 +24,8 @@ for filename in ('h3_silu_temb_grid_fl2va.safetensors', 'h3_silu_temb_grid_ref2v
 # during image validation so a green build really includes the required node.
 sys.path.insert(0, str(root))
 sys.argv.append('--cpu')
+import comfy.options
+comfy.options.enable_args_parsing()
 node_root = root / 'custom_nodes/h3_pdd'
 spec = importlib.util.spec_from_file_location('h3_pdd_gate', node_root / '__init__.py', submodule_search_locations=[str(node_root)])
 module = importlib.util.module_from_spec(spec)
