@@ -14,6 +14,16 @@ import prompt_book_h3
 
 
 class PromptBookH3Tests(unittest.TestCase):
+    def test_explicit_pdd_recipe_uses_ref_heads_and_keeps_upscale(self):
+        request, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {'workflow_id': 'ours', 'subject_id': 'ada', 'video_id': 'clip',
+             'acceleration_recipe': 'pdd8', 'sampler': 'lcm', 'rtx_upscale': True},
+            catalog=self.catalog(), baked={'prompt': 'A subject in the scene.'})
+        self.assertEqual(request['pdd_lora'], 'H3/MiniMax-H3-Ref2VA-Acc-8Step.safetensors')
+        self.assertEqual(request['sampler'], 'euler')
+        self.assertTrue(request['latent_upscale'])
+        self.assertTrue(request['rtx_upscale'])
+
     def setUp(self):
         startup = mock.patch.object(media_console.OUTPUT_SYNC, "start")
         startup.start()

@@ -130,18 +130,11 @@ class WorkflowTests(unittest.TestCase):
                 handler.build_preset(dict({"task": "t2v", "prompt": "robot", "attention": "sla",
                     "sparse_trained_weights": True}, **changes))
 
-    def test_pdd_requires_matched_lora_and_schedule(self):
-        data = {"task": "t2v", "prompt": "robot", "pdd_enabled": True, "turbo_enabled": False,
-                "steps": 8, "sampler": "euler", "scheduler": "simple", "attention": "native",
-                "loras": [{"name": "MiniMax-H3-FL2VA-Acc-8Step_comfy.safetensors", "strength": 1}]}
-        graph, _ = handler.build_preset(data)
-        self.assertEqual(graph["9161"]["inputs"]["shift_video"], 12)
-        self.assertEqual(graph["9161"]["inputs"]["shift_audio"], 3)
-        self.assertEqual(graph["126"]["inputs"]["model"], ["9161", 0])
-        graph, _ = handler.build_preset(dict(data, steps=64))
-        self.assertEqual(graph["124"]["inputs"]["steps"], 64)
-        with self.assertRaises(handler.InputError):
-            handler.build_preset(dict(data, loras=[]))
+    def test_pdd_rejects_ordinary_trunk_lora_without_recipe(self):
+        with self.assertRaisesRegex(handler.InputError, 'recipe'):
+            handler.build_preset({'task': 't2v', 'prompt': 'robot', 'pdd_enabled': True,
+                'turbo_enabled': False, 'steps': 8, 'sampler': 'euler', 'attention': 'native',
+                'loras': [{'name': 'MiniMax-H3-FL2VA-Acc-8Step_comfy.safetensors', 'strength': 1}]})
 
     def test_step_counts_are_not_limited_by_turbo_training_count(self):
         for turbo, sampler in ((True, "h3_turbo"), (False, "euler")):

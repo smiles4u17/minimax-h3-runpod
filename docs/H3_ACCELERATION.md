@@ -1,121 +1,46 @@
-# H3 attention and generation recipes
+# H3 acceleration recipes
 
-## GPU-adaptive Sage runtime
+Custom is the default and preserves the saved sampler, model and LoRAs, including
+LCM. Turbo/Larry controls retain their existing behavior. Selecting a recipe is
+an explicit model/schedule change; selecting Custom restores the previous values.
 
-Workers select acceleration from their allocated device, rather than the pool
-name in the endpoint configuration. SM89 (RTX 4090) uses SageAttention 2.2.0
-from the official Comfy-Org Linux Python 3.12 / CUDA 13 / Torch 2.10 wheel,
-SHA256 `f0f8a1b9ba89719ab69c4481c1c94e959c4950d53f92bf0c96e3652e81544b21`.
-Its isolated package is selected before ComfyUI and the handler start.
-SM120 (RTX 5090 / RTX PRO 4500 Blackwell) retains the existing checksum-pinned
-Blackwell wheel and Q/K/V CUDA address guards. Unsupported architectures use
-native attention in auto mode; an explicit unavailable Sage request fails clearly.
+- PDD: FL2V/T2V or Ref2V stock INT8 checkpoint, original Alibaba 8-step
+  checkpoint with the full displacement-head bank, dedicated H3PDDAcceleration
+  node, exact eight-NFE sigmas, Euler and 12/3 shifts. Separate Turbo, sparse
+  attention and FirstBlockCache are disabled. Creative LoRAs remain available;
+  disable other acceleration adapters before selecting this recipe.
+- SLA: FL2V/T2V stock INT8 checkpoint, converted LightX2V SLA adapter at strength
+  one, native BlockSparseAttention, Euler four steps, 6/3 shifts and 15% exact
+  blocks. The installed weights do not support Ref2V.
+- Sol: available through the existing Attention workflow selector, using the
+  native Comfy Kitchen kernel. No model adapter download is required.
+- VSA: unavailable until compatible FastH3 weights are supplied. A selector alone
+  does not make dense-trained weights compatible.
 
-The two standard Qwen encoder names resolve per allocated GPU, including old
-queued requests carrying the console's NVFP4 default: Blackwell uses NVFP4 when
-installed; Ada requires the universal INT8 encoder on the volume. A custom
-encoder name and the explicit `TEXT_ENCODER_FILE` operator override are retained.
-Missing compatible weights fail before model execution. Do not enable the Ada
-pool until the universal encoder is staged and stored-byte SHA256 verified.
+The existing learned latent upscale and RTX stages remain enabled as configured.
+PDD completes its exact first pass, then uses the base model without PDD heads
+for a separate low-noise refinement pass. Remaining-first-pass sigmas are
+incompatible with these recipes. Prompt Book supports PDD and Sol; SLA is FL2V only.
 
-Use `{"action":"attention_check","attention_check_mode":"smoke"}` for a
-generation-free GPU check of the actual KJ production dispatch in fp16 and bf16
-against PyTorch SDPA, including non-aligned sequence lengths. The legacy
-`address` check remains available for the large fused-stride regression.
-Passing a build/import or a mocked routing test does not prove GPU execution.
+PDD source is vendored under custom_nodes/h3_pdd at commit
+c5f103aeafca90551f833b3a8a941776455d79e7 with its MIT license and two support
+grids. It uses the runtime's existing Torch/ComfyUI dependencies. The image build
+imports the extension on CPU and fails if it cannot load. No local CUDA package
+or stopped pod restart is needed for installation.
 
-The pinned ComfyUI commit `1f641fd9337f0ec4d635a28415a8d25a8d15f753`
-descends from v0.35.0 (`40c4fcdf513a4523e39d54a9d391908af8df8171`). It already
-includes the masked velocity correction, cgroup RAM accounting, native sparse
-attention and PDD support. Do not downgrade to the release tag to obtain them.
-The image build checks Aimdo 0.5.3, Kitchen 0.2.33 and the required source features,
-then runs ComfyUI's CPU startup check. These checks do not measure GPU quality.
+Pinned assets (stored under models/loras/H3):
 
-## Workflows
+- lightx2v/Minimax-h3-Turbo-SLA at b4cd41131be06909110464ec1be3b30aa6068e8e:
+  minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors
+  SHA256 5cae6df40a06ea825f85fc8876c9ea1c9692c833a9af07bb8b3bac9ce2a71bac
+- alibaba-pai/MiniMax-H3-Acc-LoRAs at 335001fb9e5455d68a0caa18ec2e319072150328:
+  MiniMax-H3-FL2VA-Acc-8Step.safetensors
+  SHA256 0b29be7042d883970eb0c20774a9ba03d95669ed80a721bb4d21be8ea0d0a196
+  and MiniMax-H3-Ref2VA-Acc-8Step.safetensors
+  SHA256 111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c
 
-- `workflows/t2v.json`: ComfyUI API graph for text to video/audio. The first and
-  last frame inputs are disconnected. The same FL2VA checkpoint supports this task.
-- `examples/t2v-dense.json`: reproducible dense baseline request.
-- `examples/t2v-sol-attn.json`: training-free native Sol-Attn comparison request.
-- `examples/fl2v-sla-experimental.json`: native SLA comparison using the converted
-  FL2V Turbo-SLA LoRA, 15% kept blocks, four Euler steps and shifts 6/3.
-  Replace the example first-frame path with an actual mounted-volume file.
-  This is a ComfyUI experiment, not demonstrated parity with LightX2V's
-  training_euler sampler or its sparse-linear implementation.
-- `examples/t2v-pdd8.json`: converted FL2VA PDD LoRA, eight Euler/simple steps,
-  shifts 12/3. For reference generation use task `r2v`, supply references and use
-  the matching Ref2VA converted LoRA.
-
-## Install optional weights
-
-Installed and SHA256-verified on volume `vgc3ky6r6y` on September 11, 2026: three LightX2V Turbo adapters (FL2V 4/8 step, Ref2V 4 step), both pruned PDD adapters, and the SLA FL2V adapter. The existing Larry v4 EMA adapter was also verified. See `h3_acceleration_installation.json`. No manual pod installation is needed. The temporary download pod was deleted.
-
-For recovery on a different volume, set COMFY_ROOT
-to `/runpod-volume` so downloads persist under `/runpod-volume/models`:
-
-```sh
-COMFY_ROOT=/runpod-volume python3.12 /opt/minimax-h3/scripts/download_models.py --asset sla-fl2v
-COMFY_ROOT=/runpod-volume python3.12 /opt/minimax-h3/scripts/download_models.py --asset pdd-fl2v --asset pdd-r2v
-```
-
-These optional downloads pin Hugging Face revisions and do not run on worker
-startup. The console also supports importing the converted PDD LoRA: choosing
-the PDD preset prepares its pinned URL when the file is absent. Import it in the
-LoRA library, refresh, then select the preset again. Original unconverted PDD
-weights are not a substitute for the ComfyUI conversion with output-head banks.
-
-## Controls and validation
-
-Native dense remains SAMimate's attention default. Sol-Attn is training-free.
-SLA requires matching trained weights; VSA requires FastH3-compatible weights.
-The explicit trained-weights control acknowledges this configuration requirement;
-it cannot inspect a checkpoint's training history. Sparse attention and
-FirstBlockCache cannot be combined through the preset API. Reference/text keys
-and target-audio query rows remain exact via `exact_kv_and_rows`.
-
-Native sparse kernels automatically fall back to dense for unsupported GPU
-shapes and sequences below 12,288 tokens. Logs are enabled to distinguish actual
-sparse execution from fallback. Sparse mode does not guarantee a speedup.
-Optional advanced request keys `shift_video` and `shift_audio` configure the
-native flow-shift node. PDD fixes these at 12/3 and rejects custom shifts.
-
-Before changing the core/runtime pin, build and test a separate image. Compare
-fixed-seed dense and accelerated jobs using the same non-sensitive footage,
-reference images, size and duration; inspect identity, motion and audio. Repeat
-jobs on both small- and large-VRAM GPUs. Check `RAM limited by cgroup to ...`
-when the container actually has a lower cgroup limit than host RAM. Do not infer
-correct RAM accounting from an absent log when no such limit is imposed.
-For SAMimate also verify the final lossless composite outside the original mask.
-Preserve the existing endpoint GPU pools, volume and worker limits.
-
-## Sources checked September 11, 2026
-
-- https://github.com/Comfy-Org/ComfyUI/releases/tag/v0.35.0
-- https://github.com/Comfy-Org/ComfyUI/pull/15988
-- https://github.com/Comfy-Org/ComfyUI/pull/15908
-- https://github.com/Comfy-Org/ComfyUI/blob/v0.35.0/comfy_extras/nodes_sparse_attention.py
-- https://huggingface.co/asadkhan89/Minimax-h3-Turbo-SLA
-- https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs
-- https://huggingface.co/Kijai/MiniMax-H3-experimental
-
-## Step counts and Turbo families
-
-The console and worker accept positive whole-number step counts without the old
-4-8 Turbo or 4-50 regular limits. Presets still suggest their trained count;
-changing the Turbo family does not clamp or reset a manually chosen count. PDD's
-8 steps are now a recommendation too. ComfyUI's own node validation remains in
-force; more steps do not imply higher quality for a distilled model.
-
-Select **Larry Turbo** for its dedicated loader/sampler. Select **LightX2V** for
-ComfyUI-converted adapters, the standard model-only LoRA loader, and Euler/simple.
-The family control chooses a task-matched 4-step file; the file dropdown also
-provides LightX2V's FL2V 8-step adapter. FL2V uses flow shifts 6/3; Ref2V uses 12/3.
-**Auto from selected file** detects the converted LightX2V filenames. Mismatched
-FL2V/Ref2V adapters and Larry's dedicated sampler with LightX2V are rejected.
-This uses ComfyUI's native AV implementation, not a separate LightX2V engine.
-
-Source configurations:
-https://github.com/ModelTC/LightX2V/tree/main/configs/minimax_h3/dmd
-
-The `console/` directory contains a runnable source snapshot of the local console,
-including its UI and tests. It is excluded from the worker Docker build context.
+References:
+https://github.com/lukas-9936/ComfyUI-MiniMax-H3-PDD
+https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs
+https://huggingface.co/lightx2v/Minimax-h3-Turbo-SLA
+https://docs.comfy.org/tutorials/video/minimax/minimax-h3

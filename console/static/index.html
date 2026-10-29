@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RunPod Media Console Web</title>
-<link rel="stylesheet" href="/static/styles.css?v=16.11" />
+<link rel="stylesheet" href="/static/styles.css?v=16.17" />
 <link rel="stylesheet" href="/static/workspace.css?v=16.09" />
 </head>
 <body>
@@ -131,6 +131,7 @@
           <button type="button" class="secondaryButton" onclick="deletePrompt('h3')">Delete</button>
         </div>
       </div>
+      <div class="fields"><button id="h3_enhance_button" type="button" onclick="enhanceH3Prompt()">Enhance with Grok</button><button id="h3_enhance_undo" type="button" onclick="undoH3Enhancement()" disabled>Restore original</button><span id="h3_enhance_status" role="status">Sends this prompt to xAI; review the result before running H3.</span></div>
       <div class="h3PromptComposer"><textarea id="h3_prompt" rows="12" title="Full MiniMax H3 prompt. Enabled subject definitions are inserted at the top automatically.">A cinematic shot with natural, stable motion.</textarea><div class="h3RunTop"><button id="h3_run_button" class="run h3PrimaryRun" onclick="runH3()">Run MiniMax H3</button><button id="h3_cancel_button" type="button" onclick="cancelCurrentH3Job()" disabled>Cancel current job</button><span id="h3_status" class="trimMeta"></span></div></div>
       <div id="h3_subject_prompt_status" class="h3SubjectPromptStatus">No Subject Book definitions enabled.</div>
       <details class="h3InlineDetails"><summary>Advanced prompt overrides</summary><label title="Advanced object merged into the H3 request after the visible controls.">Advanced JSON<textarea id="h3_advanced" rows="4">{}</textarea></label></details>
@@ -374,6 +375,7 @@
 </section>
 
 <section id="settings" class="tab panel"><h2>Settings</h2><div class="card fields wide">
+  <label>Grok API key<input id="grok_api_key" type="password" autocomplete="new-password"></label><label>Grok text model<input id="grok_model" value="grok-4.7"></label>
   <label>RunPod API Key<input id="runpod_api_key" type="password"></label><label>MiniMax H3 Endpoint<input id="h3_endpoint_id" value="s1e3i9book2zhh"></label><label>Timeout Seconds<input id="timeout_seconds" type="number" value="3600"></label>
   <label title="Optional Hugging Face token for gated facebook/sam3 checkpoint access. Stored in local settings.">Hugging Face Token<input id="sam_hf_token" type="password" placeholder="hf_..."></label>
   <label title="Global media delivery. Auto matches the old desktop app: small local files go Base64; larger files upload to S3 and send a RunPod volume path.">Global Delivery<select id="delivery_mode"><option value="auto">Auto / desktop behavior</option><option value="runpod_volume_path">RunPod Volume Path</option><option value="s3_url">S3 URL</option><option value="base64">Base64 / direct</option></select></label>
@@ -492,7 +494,7 @@
   </div>
   <div class="card" id="pb_generation">
     <h3>Prompt Book H3 settings</h3>
-    <p class="pbNote">Ref2V uses the selected book references and prompt. Separate Turbo is always off here; these controls do not change the main H3 tab. Only LoRAs added below are sent.</p>
+    <p class="pbNote">Ref2V uses the selected book references and prompt. Separate Turbo is always off here; these controls do not change the main H3 tab. Only enabled LoRAs added below are sent.</p>
     <div class="fields">
       <label title="Where the source clip begins, in seconds.">Start Seconds<input id="pb_start" type="number" min="0" step="0.1" value="0"></label>
       <label title="Generated video length from 1 to 15 seconds, measured from Start Seconds.">Duration Seconds<input id="pb_duration" type="number" min="1" max="15" step="0.1" value="5"></label>
@@ -529,12 +531,18 @@
     <details>
       <summary>Workflow LoRAs</summary>
       <div class="fields">
+        <label>Local .safetensors file<input id="pb_lora_file" type="file" accept=".safetensors"></label>
+        <button type="button" data-pb-transfer onclick="pbTransferLora('upload')">Upload local LoRA</button>
+        <label>Remote download URL<input id="pb_lora_remote_url" type="url" placeholder="https://huggingface.co/.../model.safetensors"></label>
+        <label>Optional filename<input id="pb_lora_remote_name" placeholder="optional-name.safetensors"></label>
+        <button type="button" data-pb-transfer onclick="pbTransferLora('import')">Import remote LoRA</button>
+      </div><div class="fields">
         <label>H3 LoRA<select id="pb_lora_library_select"><option value="">Load H3 LoRA library...</option></select></label>
         <label>Strength<input id="pb_lora_strength" type="number" min="0" max="2" step="0.05" value="1"></label>
-        <button id="pb_add_lora" type="button">Add LoRA</button>
+        <button id="pb_add_lora" type="button">Add LoRA</button><button type="button" onclick="pbLoadLoraLibrary(true)">Refresh library</button>
       </div>
       <p class="pbNote" id="pb_lora_status">Choose a LoRA from the H3 volume and add it to this prompt-book run.</p>
-      <div id="pb_lora_active"></div>
+      <div id="pb_lora_active" class="h3LoraActive"></div>
       <textarea id="pb_loras" class="hidden" aria-hidden="true">[]</textarea>
     </details>
   </div>
@@ -565,8 +573,8 @@
   </div>
   <pre id="log"></pre>
 </section>
-<script src="/static/app.js?v=16.14.1"></script>
-<script src="/static/prompt_book.js?v=16.14"></script>
+<script src="/static/app.js?v=16.17"></script>
+<script src="/static/prompt_book.js?v=16.17"></script>
 <script src="/static/h3_attention_profiles.js?v=16.14"></script>
 <script src="/static/dashboard.js?v=15.89"></script>
 <script src="/static/h3_job.js?v=16.01"></script>
@@ -574,5 +582,7 @@
 <script src="/static/workspace.js?v=16.15"></script>
 <script src="/static/monitor_jobs.js?v=16.14"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
+<script src="/static/grok_enhancer.js?v=16.17"></script>
+<script src="/static/h3_acceleration.js?v=16.17"></script>
 </body>
 </html>

@@ -17,9 +17,10 @@ from job_list import sent_requests, merge_live_requests, sorted_requests
 from h3_attention_profiles import apply_profile as apply_attention_profile, validate_attention, catalog as attention_profile_catalog
 from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults, reference_frame_cap
 import prompt_book_h3
+import h3_acceleration
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.15-durable-job-status"
+APP_VERSION = "web-v16.17-h3-acceleration"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -59,6 +60,7 @@ LAN_TOKEN_PATH = DATA_DIR / "lan_access_token.txt"
 GENERIC_UPLOAD_MAX_BYTES = 16 * 1024 * 1024 * 1024
 SECRET_PATHS = (
     ("runpod_api_key",),
+    ("grok_api_key",),
     ("s3_access_key_id",),
     ("s3_secret_access_key",),
     ("sam", "hf_token"),
@@ -77,6 +79,7 @@ for d in (DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, THUMB_DIR, SAM_DIR):
 
 def defaults() -> dict[str, Any]:
     return {
+        "grok_api_key":"", "grok_model":"grok-4.7",
         "runpod_api_key":"", "h3_endpoint_id":"s1e3i9book2zhh",
         "poll_interval_seconds":4, "timeout_seconds":3600,
         "s3_endpoint_url":"https://s3api-eu-ro-1.runpod.io", "s3_access_key_id":"", "s3_secret_access_key":"",
@@ -2854,6 +2857,20 @@ def home(): return FileResponse(Path(__file__).parent/"static"/"index.html")
 def version(): return {"name":APP_NAME,"version":APP_VERSION}
 @app.get("/api/health")
 def health(): return {"ok": True, "name": APP_NAME, "version": APP_VERSION}
+@app.post("/api/h3/enhance-prompt")
+async def enhance_h3_prompt(data: dict[str, Any]):
+    from grok_enhancer import enhance_prompt
+    cfg = runtime_settings(data.get("settings") or {})
+    try:
+        return await run_in_threadpool(enhance_prompt, data, cfg)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(504, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
 @app.get("/api/settings")
 def get_settings(): return public_settings()
 @app.post("/api/settings")
@@ -4814,6 +4831,7 @@ async def run_prompt_book(data: dict[str, Any]):
 @app.post("/api/run/h3")
 async def run_h3(data: dict[str, Any]):
     try:
+        data = h3_acceleration.recipe(data)
         data = apply_attention_profile(data)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -4977,6 +4995,15 @@ async def run_h3(data: dict[str, Any]):
         except (ValueError, TypeError) as e:
             raise HTTPException(400, f"Invalid {name}") from e
     payload["pdd_enabled"] = as_bool(data.get("pdd_enabled"), False)
+    payload['acceleration_recipe'] = str(data.get('acceleration_recipe') or 'custom')
+    if payload['pdd_enabled']:
+        payload['pdd_lora'] = str(data.get('pdd_lora') or '')
+    for field in ('shift_video', 'shift_audio'):
+        if field in data:
+            value = float(data[field])
+            if not math.isfinite(value) or not .01 <= value <= 100:
+                raise HTTPException(400, 'Invalid H3 sigma shift')
+            payload[field] = value
     payload["sparse_trained_weights"] = as_bool(data.get("sparse_trained_weights"), False)
     if payload["attention"] in {"sol-attn", "sla", "vsa"}:
         if cache_enabled:
@@ -5012,10 +5039,8 @@ async def run_h3(data: dict[str, Any]):
     payload["diagnostic_frames"] = as_bool(data.get("diagnostic_frames"), False)
     if new_variant:
         payload['task'] = task + '_20260920'
-    try:
-        validate_attention(payload)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(400, str(exc)) from exc
+    if payload['pdd_enabled'] and payload['acceleration_recipe'] == 'pdd8':
+        payload['task'] = task + '_pdd_20261028'
     effective_delivery = delivery
     estimated_inline_bytes = 0
     reference_trims = []
@@ -5104,6 +5129,8 @@ async def run_h3(data: dict[str, Any]):
     for index, item in enumerate(loras):
         if not isinstance(item, dict):
             raise HTTPException(400, f"H3 LoRA {index + 1} must be an object with name and strength")
+        if item.get("enabled") is False:
+            continue
         try:
             name = h3_lora_name(str(item.get("name") or ""))
             strength = float(item.get("strength", 1.0))
@@ -5115,12 +5142,16 @@ async def run_h3(data: dict[str, Any]):
     loras = clean_loras
     payload["loras"] = loras
     try:
+        validate_attention(payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    try:
         advanced = json.loads(data.get("advanced_json") or "{}")
         if not isinstance(advanced, dict):
             raise ValueError("Advanced JSON must be an object")
         protected = {
             "task", "prompt", "duration", "megapixels", "steps", "seed", "seed_random", "sampler", "scheduler", "cache_enabled", "cache_threshold",
-            "attention", "pdd_enabled", "sparse_keep_percent", "sparse_tau", "sparse_start_percent", "sparse_end_percent", "sparse_trained_weights", "aspect_ratio", "filename_prefix", "model", "clip", "video_vae",
+            "attention", "pdd_enabled", "acceleration_recipe", "pdd_lora", "shift_video", "shift_audio", "sparse_keep_percent", "sparse_tau", "sparse_start_percent", "sparse_end_percent", "sparse_trained_weights", "aspect_ratio", "filename_prefix", "model", "clip", "video_vae",
             "audio_vae", "clip_projection", "turbo_enabled", "turbo_family", "turbo_lora", "turbo_strength",
             "loras", "first_frame", "last_frame", "references", "reference_videos", "reference_video_audio", "reference_video_settings", "reference_audios", "audio",
             "use_reference_audio_as_output", "output_upload_urls", "workflow", "output_layout", "masked_edit",
@@ -5317,6 +5348,11 @@ def recover_completed_h3_status(endpoint_id: str, job_id: str, s: dict[str, Any]
 @app.get('/api/h3/sampling')
 def h3_sampling_options():
     return H3_SAMPLING
+
+
+@app.get('/api/h3/acceleration')
+def h3_acceleration_catalog():
+    return h3_acceleration.catalog()
 
 
 @app.get('/api/h3/attention-profiles')

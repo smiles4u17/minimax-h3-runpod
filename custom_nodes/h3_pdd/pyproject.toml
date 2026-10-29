@@ -1,0 +1,11 @@
+[project]
+name = "comfyui-minimax-h3-pdd"
+version = "0.1.0"
+description = "Native ComfyUI loader for Alibaba PAI MiniMax-H3 PDD acceleration LoRAs"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+
+[tool.comfy]
+PublisherId = "lukas-9936"
+DisplayName = "MiniMax H3 PDD Acceleration"
+Icon = ""

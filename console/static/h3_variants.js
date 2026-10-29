@@ -20,6 +20,7 @@ function bindH3PhotoDrop(card,upload){
     <label><input type="checkbox" role="switch" id="h3_use_larry"> Larry Turbo (off = LightX2V)</label>
     <label><input type="checkbox" role="switch" id="h3_latent_upscale" checked> Use latent upscale</label>
     <label><input type="checkbox" role="switch" id="h3_rtx_upscale" checked> RTX upscale</label>
+    <label><input type="checkbox" id="h3_diagnostic_frames"> Save first-pass, learned-upscale and pre-RTX diagnostic frames</label>
     <label><input type="checkbox" role="switch" id="h3_no_turbo"> No Turbo</label>
     <label>FINAL SIZE (MP)<input id="h3_final_megapixels" type="number" min="0.2" max="2" step="0.1" value="1"></label>
     <label>Reference video detail<select id="h3_reference_resolution"><option value="generation">Match first-pass size (faster)</option><option value="original">Original detail (slower)</option></select></label>
@@ -50,7 +51,6 @@ function bindH3PhotoDrop(card,upload){
   function sync(change=false){
     const active=isNew(),fflf=variant().startsWith('fflf');
     photos.classList.toggle('hidden',!active);
-    $('h3_variant_notice').textContent=active?(chk('h3_no_turbo')&&chk('h3_latent_upscale')&&val('h3_second_pass_sigma')!=='4'?'Latent refine: complete the first pass, then preserve its composition with low-noise refinement.':''):'Upscale stages are available for FFLF and Ref2V.';
     updateH3TaskUI();
     $('h3_reference_grid').classList.toggle('hidden',active);
     for(const el of [$('h3_reference_grid').previousElementSibling,$('h3_reference_grid').previousElementSibling.previousElementSibling,document.querySelector('.h3SubjectBookBar')])el?.classList.toggle('hidden',active);
@@ -66,7 +66,10 @@ function bindH3PhotoDrop(card,upload){
     $('h3_sampler').disabled=chk('h3_turbo_enabled')&&chk('h3_use_larry');
     for(const id of ['h3_latent_upscale','h3_rtx_upscale','h3_use_multi_image'])$(id).disabled=!active;
     for(const id of ['h3_final_megapixels','h3_pass1_split','h3_second_pass_sigma','h3_latent_upscale_model'])$(id).disabled=!active||!chk('h3_latent_upscale');
-    $('h3_pass1_split').max=Math.max(1,Number(val('h3_steps'))-1);
+    $('h3_pass1_split').max=Math.max(1,Number(val('h3_steps'))-(val('h3_second_pass_sigma')==='4'?1:0));
+    const steps=Number(val('h3_steps')),split=Number(val('h3_pass1_split')),mode=Number(val('h3_second_pass_sigma'));
+    const refine=mode===4?Math.max(0,steps-split):({1:3,2:4,3:5,5:8}[mode]||0);
+    $('h3_variant_notice').textContent=active?`${chk('h3_no_turbo')?'No Turbo / no Larry; KSamplerSelect: '+val('h3_sampler'):chk('h3_use_larry')?'Larry: MiniMaxH3TurboSampler':'LightX2V; KSamplerSelect: '+val('h3_sampler')}. ${val('h3_megapixels')} MP${chk('h3_latent_upscale')?' → learned latent upscale to '+val('h3_final_megapixels')+' MP → '+refine+' refine steps'+(chk('h3_no_turbo')&&mode!==4?' (complete the first pass, low-noise refine)':' (remaining first-pass sigmas)'):''}${chk('h3_rtx_upscale')?' → RTX ULTRA':''}.${chk('h3_latent_upscale')&&mode===4&&refine<3?' Only '+refine+' refinement step(s) remain; select a low-noise sigma option for a completed first pass and separate refinement.':''}`:'Upscale stages are available for FFLF and Ref2V.';
   }
   $('h3_task').addEventListener('change',()=>{sync(true);persistSettingsSoon()});
   $('h3_use_larry').onchange=()=>{selectH3TurboFamily(chk('h3_use_larry')?'larry':'lightx2v');sync();persistSettingsSoon()};
@@ -74,10 +77,12 @@ function bindH3PhotoDrop(card,upload){
   $('h3_second_pass_sigma').onchange=()=>{sync();persistSettingsSoon()};
   $('h3_pass1_split').onchange=()=>{set('h3_second_pass_sigma','4');sync();persistSettingsSoon()};
   $('h3_reference_resolution').onchange=()=>persistSettingsSoon();
+  $('h3_diagnostic_frames').onchange=()=>persistSettingsSoon();
+  for(const id of ['h3_steps','h3_megapixels','h3_final_megapixels','h3_sampler','h3_scheduler'])$(id).addEventListener('change',()=>sync());
   // Move existing controls so their IDs and existing bindings remain intact.
   const low=$('h3_megapixels').closest('label');for(const node of low.childNodes)if(node.nodeType===3&&node.textContent.trim()){node.textContent='LOWRES SIZE (MP)';break}
   function group(title,ids){const section=document.createElement('section');section.className='h3ControlGroup';const heading=document.createElement('h3');heading.textContent=title;const fields=document.createElement('div');fields.className='fields h3PairedFields';section.append(heading,fields);for(const id of ids)fields.appendChild($(id).closest('label'));panel.appendChild(section)}
-  group('Size & output',['h3_megapixels','h3_final_megapixels','h3_aspect_ratio','h3_duration','h3_latent_upscale','h3_rtx_upscale']);
+  group('Size & output',['h3_megapixels','h3_final_megapixels','h3_aspect_ratio','h3_duration','h3_latent_upscale','h3_rtx_upscale','h3_diagnostic_frames']);
   group('Reference video',['h3_reference_resolution']);
   group('Sampling',['h3_steps','h3_pass1_split','h3_second_pass_sigma','h3_sampler','h3_scheduler','h3_seed','h3_seed_random']);
   group('Turbo',['h3_no_turbo','h3_use_larry','h3_turbo_lora','h3_turbo_strength']);
@@ -89,11 +94,13 @@ function bindH3PhotoDrop(card,upload){
   window.h3Settings=()=>{const legacy=original();const settings={...legacy,legacy_inputs:{first_frame_path:legacy.first_frame_path,last_frame_path:legacy.last_frame_path,reference_paths:legacy.reference_paths,reference_subjects:legacy.reference_subjects},workflow_variant:variant(),use_multi_image:chk('h3_use_multi_image'),use_larry:chk('h3_use_larry'),latent_upscale:chk('h3_latent_upscale'),rtx_upscale:chk('h3_rtx_upscale'),final_megapixels:Number(val('h3_final_megapixels')),pass1_split:Number(val('h3_pass1_split')),second_pass_sigma:Number(val('h3_second_pass_sigma')),latent_upscale_model:val('h3_latent_upscale_model'),photo_paths:[1,2,3,4].map(i=>val('h3_photo'+i).trim()),keyframe_positions:[1,2,3,4].map(i=>val('h3_keyframe'+i).trim())};
     if(isNew()){settings.task=settings.workflow_variant==='fflf_20260920'?'fl2v':'r2v';settings.first_frame_path=settings.use_multi_image?settings.photo_paths.find(Boolean)||'':settings.photo_paths[0];settings.last_frame_path=settings.photo_paths[1];settings.reference_paths=settings.photo_paths.filter(Boolean);settings.turbo_enabled=!chk('h3_no_turbo');settings.sampling_preset='custom';settings.pdd_enabled=false;settings.turbo_family=settings.use_larry?'larry':'lightx2v';if(!settings.turbo_enabled&&settings.second_pass_sigma!==4)settings.pass1_split=settings.steps}
     settings.reference_resolution=val('h3_reference_resolution')||'generation';
+    settings.diagnostic_frames=chk('h3_diagnostic_frames');
     return settings;
   };
   const apply=applyH3Settings;
   window.applyH3Settings=(h3={},storage={})=>{
     apply({...h3,...(h3.legacy_inputs||{})},storage);setChk('h3_no_turbo',h3.turbo_enabled===false);
+    setChk('h3_diagnostic_frames',h3.diagnostic_frames===true);
     set('h3_reference_resolution',h3.reference_resolution||'generation');
     for(const [name,defaultValue] of Object.entries({use_multi_image:false,use_larry:(h3.turbo_family==='larry'||(!h3.turbo_family&&h3.sampler==='h3_turbo')),latent_upscale:true,rtx_upscale:true}))setChk('h3_'+name,h3[name]??defaultValue);
     for(const [name,defaultValue] of Object.entries({final_megapixels:1,pass1_split:Math.min(val('h3_task')==='r2v'?6:3,Math.max(1,Number(h3.steps??6)-1)),second_pass_sigma:2,latent_upscale_model:'minimax_h3_latent_upscaler_3d_bf16.safetensors'}))set('h3_'+name,h3[name]??defaultValue);

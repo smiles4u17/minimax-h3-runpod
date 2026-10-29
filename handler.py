@@ -26,6 +26,7 @@ from h3_workflow_options import reference_frame_cap
 from telemetry import JobTelemetry, is_oom, runtime_inventory
 from output_naming import copy_flat_output
 from h3_attention_profiles import apply_profile as apply_attention_profile, validate_attention
+from h3_acceleration import recipe as acceleration_recipe
 
 
 COMFY_ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
@@ -472,18 +473,11 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
             "model": model, "shift_video": video_shift, "shift_audio": audio_shift}}
         model = ["9161", 0]
 
-    if _payload_bool(payload.get("pdd_enabled")):
-        expected = "Ref2VA" if spec["conditioning"] == "136" else "FL2VA"
-        names = [str(item.get("name", "")) for item in payload.get("loras", [])]
-        if not any(expected in name and "Acc-8Step" in name and "comfy" in name for name in names):
-            raise InputError(f"PDD requires the converted {expected} Acc-8Step ComfyUI LoRA")
-        if "shift_video" in payload or "shift_audio" in payload:
-            raise InputError("PDD fixes the flow shifts at 12/3; remove custom shifts")
-        if turbo_enabled or sampler != "euler" or scheduler != "simple" or cache_enabled:
-            raise InputError("PDD requires Euler/simple, separate Turbo and cache disabled; 8 steps recommended")
-        workflow["9161"] = {"class_type": "MiniMaxH3SigmaShift", "inputs": {
-            "model": model, "shift_video": 12.0, "shift_audio": 3.0}}
-        model = ["9161", 0]
+    if _payload_bool(payload.get('pdd_enabled')):
+        if str(payload.get('acceleration_recipe') or '') != 'pdd8':
+            raise InputError('Use the PDD recipe with the full original head-bank checkpoint; trunk-only LoRA loading is unsupported')
+        if turbo_enabled or sampler != 'euler' or scheduler != 'simple' or cache_enabled or steps != 8:
+            raise InputError('PDD requires 8-step Euler/simple, separate Turbo and cache disabled')
 
     attention = _attention_mode(str(payload.get("attention") or ""), capability)
     try:
@@ -524,6 +518,16 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         workflow.pop(spec["cache"], None)
     workflow["124"]["inputs"]["model"] = model
     workflow["126"]["inputs"]["model"] = model
+    if _payload_bool(payload.get('pdd_enabled')):
+        # Preserve the dense base chain for independent low-noise refinement.
+        pdd_name = _normalize_lora_name(str(payload.get('pdd_lora') or ''))
+        if not _model_exists('loras', pdd_name):
+            raise InputError('PDD head-bank checkpoint is missing: ' + pdd_name)
+        workflow['9170'] = {'class_type': 'H3PDDAcceleration', 'inputs': {
+            'model': model, 'pdd_lora_name': pdd_name, 'hybrid_mode': 'Off (matching full model)',
+            'strict_schedule': True, 'allow_experimental_shifts': False}}
+        workflow['126']['inputs']['model'] = ['9170', 0]
+        workflow['125']['inputs']['sigmas'] = ['9170', 1]
 
     prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(payload.get("filename_prefix", "H3"))).strip("._")
     legacy = "RunPod_Media_Console_H3"
@@ -548,6 +552,8 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         "turbo_family": turbo_family,
         "steps": steps,
         "sampler": sampler,
+        "acceleration_recipe": payload.get('acceleration_recipe', 'custom'),
+        "pdd_lora": payload.get('pdd_lora') if payload.get('pdd_enabled') else None,
         "scheduler": scheduler,
         "cache_enabled": cache_enabled,
         "cache_threshold": threshold if cache_enabled else None,
@@ -769,7 +775,13 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
 
 
 def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload = dict(payload)
+    if payload.get('task') == 't2v_pdd_20261028':
+        payload['task'] = 't2v'
+    if payload.get('task') in ('fl2v_pdd_20261028', 'r2v_pdd_20261028'):
+        payload['task'] = 'fl2v_20260920' if payload['task'].startswith('fl2v') else 'r2v_20260920'
     try:
+        payload = acceleration_recipe(payload)
         payload = apply_attention_profile(payload)
     except ValueError as exc:
         raise InputError(str(exc)) from exc

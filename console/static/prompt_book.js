@@ -2,7 +2,7 @@ let PB = {catalog: null, subject: '', subjectB: '', video: '', family: '', subje
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
 const PB_GENERATION_STORE = 'prompt-book-h3-generation-v1';
 const PB_DEFAULT_MODEL = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors';
-const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'attention_profile', 'cache_enabled', 'cache_threshold', 'reference_resolution'];
+const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'attention_profile', 'cache_enabled', 'cache_threshold', 'reference_resolution', 'acceleration_recipe'];
 
 function pbEsc(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -26,14 +26,14 @@ function pbRenderLoras() {
   if (!box) return;
   const items = pbLoras();
   box.innerHTML = items.length
-    ? items.map((item, index) => `<div class="pbLoraActiveRow"><span>${pbEsc(item.name)}</span><label>Strength<input type="number" min="0" max="2" step="0.05" value="${Number(item.strength ?? 1)}" data-pb-lora-strength="${index}"></label><button type="button" data-pb-lora-remove="${index}">Remove</button></div>`).join('')
+    ? items.map((item, index) => `<div class="h3LoraActiveRow"><label class="loraToggle"><input type="checkbox" role="switch" ${item.enabled !== false ? 'checked' : ''} data-pb-lora-enabled="${index}"> On</label><span><strong>${pbEsc(item.name.split('/').pop())}</strong><small>${pbEsc(item.name)}</small></span><label>Strength<input type="number" min="0" max="2" step="0.05" value="${Number(item.strength ?? 1)}" data-pb-lora-strength="${index}"></label><button type="button" data-pb-lora-remove="${index}">Remove</button></div>`).join('')
     : '<span class="loraEmpty">No active Prompt Book LoRAs</span>';
 }
 
-async function pbLoadLoraLibrary() {
+async function pbLoadLoraLibrary(force = false) {
   const select = $('pb_lora_library_select');
   const status = $('pb_lora_status');
-  if (!select || select.dataset.loaded) return;
+  if (!select || (select.dataset.loaded && !force)) return;
   select.dataset.loaded = '1';
   try {
     const result = await api('/api/h3/loras');
@@ -41,6 +41,7 @@ async function pbLoadLoraLibrary() {
     select.innerHTML = '<option value="">Choose a LoRA from the H3 volume...</option>' + items.map(item => `<option value="${pbEsc(item.name)}">${pbEsc(item.name)}${item.size_mb ? ` (${pbEsc(item.size_mb)} MB)` : ''}</option>`).join('');
     if (status) status.textContent = `${items.length} H3 LoRA${items.length === 1 ? '' : 's'} available. Uploaded/imported LoRAs appear here after refresh.`;
   } catch (error) {
+    delete select.dataset.loaded;
     if (status) status.textContent = 'H3 LoRA library unavailable: ' + error.message;
     select.innerHTML = '<option value="">LoRA library unavailable</option>';
   }
@@ -53,10 +54,11 @@ function pbAddLora() {
   if (!Number.isFinite(strength) || strength < 0 || strength > 2) return alert('LoRA strength must be between 0 and 2.');
   const items = pbLoras();
   const existing = items.find(item => item.name === name);
-  if (existing) existing.strength = strength;
-  else items.push({name, strength});
+  if (existing) { existing.strength = strength; existing.enabled = true; }
+  else items.push({name, strength, enabled: true});
   set('pb_loras', JSON.stringify(items));
   pbRenderLoras();
+  pbSaveGeneration();
 }
 
 function pbRemoveLora(index) {
@@ -64,6 +66,49 @@ function pbRemoveLora(index) {
   items.splice(index, 1);
   set('pb_loras', JSON.stringify(items));
   pbRenderLoras();
+  pbSaveGeneration();
+}
+
+async function pbTransferLora(kind, overwrite = false) {
+  const status = $('pb_lora_status');
+  const buttons = document.querySelectorAll('[data-pb-transfer]');
+  let retry = false;
+  try {
+    let body, route, headers;
+    if (kind === 'upload') {
+      const file = $('pb_lora_file')?.files?.[0];
+      if (!file || !file.name.toLowerCase().endsWith('.safetensors'))
+        throw new Error('Choose a local .safetensors file first.');
+      body = new FormData();
+      body.append('file', file, file.name);
+      body.append('overwrite', String(overwrite));
+      route = '/api/h3/loras/upload';
+    } else {
+      const url = val('pb_lora_remote_url').trim(), name = val('pb_lora_remote_name').trim();
+      if (!url) throw new Error('Enter a remote LoRA download URL first.');
+      if (name && !name.toLowerCase().endsWith('.safetensors'))
+        throw new Error('Filename must end with .safetensors.');
+      body = JSON.stringify({url, name, overwrite});
+      headers = {'Content-Type': 'application/json'};
+      route = '/api/h3/loras/import';
+    }
+    buttons.forEach(button => { button.disabled = true; });
+    status.textContent = 'Transferring LoRA to the H3 volume…';
+    await saveSettings();
+    const result = await api(route, {method: 'POST', body, ...(headers ? {headers} : {})});
+    await pbLoadLoraLibrary(true);
+    set('pb_lora_library_select', result.item.name);
+    pbAddLora();
+    void loadH3LoraLibrary(true);
+    status.textContent = `Added ${result.item.name} to Prompt Book.`;
+    if (kind === 'upload') $('pb_lora_file').value = '';
+    else { set('pb_lora_remote_url', ''); set('pb_lora_remote_name', ''); }
+  } catch (error) {
+    if (error.status === 409 && !overwrite)
+      retry = confirm(`${error.message}. Replace the existing file?`);
+    status.textContent = 'LoRA transfer: ' + error.message;
+  } finally { buttons.forEach(button => { button.disabled = false; }); }
+  if (retry) return pbTransferLora(kind, true);
 }
 
 function loadPromptBook() {
@@ -493,6 +538,7 @@ function pbRestoreGeneration() {
   try {
     const saved = JSON.parse(localStorage.getItem(PB_GENERATION_STORE) || '{}');
     PB.aspectTouched = saved.aspect_explicit === true;
+    if (Array.isArray(saved.loras)) set('pb_loras', JSON.stringify(saved.loras));
     for (const name of PB_GENERATION_FIELDS) {
       const element = $('pb_' + name);
       if (!element || !Object.hasOwn(saved, name)) continue;
@@ -510,7 +556,7 @@ function pbRestoreGeneration() {
 }
 
 function pbSaveGeneration() {
-  const saved = {aspect_explicit: PB.aspectTouched};
+  const saved = {aspect_explicit: PB.aspectTouched, loras: pbLoras()};
   for (const name of PB_GENERATION_FIELDS) {
     const element = $('pb_' + name);
     if (element) saved[name] = element.type === 'checkbox' ? element.checked : element.value;
@@ -548,7 +594,7 @@ function pbH3Summary() {
   if (!note) return;
   try {
     const h3 = pbGenerationSettings();
-    note.textContent = `Prompt Book Ref2V · separate Turbo off · ${h3.sampler}/${h3.scheduler} · ${h3.steps} steps · ${h3.megapixels} MP${h3.latent_upscale ? ` → ${h3.final_megapixels} MP (${h3.second_pass_sigma === 4 ? `split ${h3.pass1_split}, remaining sigmas` : 'complete first pass, low-noise refine'})` : ''}${h3.rtx_upscale ? ' → RTX' : ''} · ${pbLoras().length} Prompt Book LoRA(s).`;
+    note.textContent = `Prompt Book Ref2V · separate Turbo off · ${h3.sampler}/${h3.scheduler} · ${h3.steps} steps · ${h3.megapixels} MP${h3.latent_upscale ? ` → ${h3.final_megapixels} MP (${h3.second_pass_sigma === 4 ? `split ${h3.pass1_split}, remaining sigmas` : 'complete first pass, low-noise refine'})` : ''}${h3.rtx_upscale ? ' → RTX' : ''} · ${pbLoras().filter(item => item.enabled !== false).length} enabled / ${pbLoras().length} added Prompt Book LoRA(s).`;
   } catch (error) { note.textContent = 'Prompt Book settings need attention: ' + error.message; }
 }
 
@@ -686,6 +732,12 @@ function bindPromptBook() {
     if (button) pbRemoveLora(Number(button.dataset.pbLoraRemove));
   });
   $('pb_lora_active')?.addEventListener('change', event => {
+    const toggle = event.target.closest('[data-pb-lora-enabled]');
+    if (toggle) {
+      const items = pbLoras(), index = Number(toggle.dataset.pbLoraEnabled);
+      if (items[index]) { items[index].enabled = toggle.checked; set('pb_loras', JSON.stringify(items)); pbSaveGeneration(); }
+      return;
+    }
     const input = event.target.closest('[data-pb-lora-strength]');
     if (!input) return;
     const index = Number(input.dataset.pbLoraStrength);
@@ -694,6 +746,7 @@ function bindPromptBook() {
     if (!Number.isInteger(index) || !items[index] || !Number.isFinite(strength) || strength < 0 || strength > 2) return;
     items[index].strength = strength;
     set('pb_loras', JSON.stringify(items));
+    pbSaveGeneration();
   });
   $('pb_aspect_ratio')?.addEventListener('change', () => { PB.aspectTouched = true; });
   for (const id of ['pb_panties', 'pb_identity_only', 'pb_bare_breasts', 'pb_sound', 'pb_video_editing', 'pb_test_mode', 'pb_beta', 'pb_character_swap', 'pb_opening_frame']) {

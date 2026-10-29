@@ -6,6 +6,34 @@ import test_handler
 from h3_workflow_options import validate_keyframes
 
 class VariantTests(unittest.TestCase):
+    def test_sla_pairs_sparse_adapter_and_shift_without_larry(self):
+        from h3_acceleration import SLA_ADAPTER
+        (handler.COMFY_ROOT/'models/loras/H3'/SLA_ADAPTER).touch()
+        graph, meta = self.build('fflf_20260920', acceleration_recipe='sla4',
+                                latent_upscale=True, rtx_upscale=True)
+        self.assertEqual(graph['9160']['inputs']['selection'], 'sla')
+        self.assertEqual(graph['9161']['inputs']['shift_video'], 6)
+        self.assertEqual(meta['steps'], 4)
+        self.assertNotIn('154', graph)
+        self.assertIn('9308', graph)
+        self.assertIn('9310', graph)
+
+    def test_pdd_full_heads_and_dense_refinement_do_not_use_larry(self):
+        for variant, name in [('fflf_20260920', 'MiniMax-H3-FL2VA-Acc-8Step.safetensors'),
+                              ('ref2v_20260920', 'MiniMax-H3-Ref2VA-Acc-8Step.safetensors')]:
+            (handler.COMFY_ROOT/'models/loras/H3'/name).touch()
+            graph, meta = self.build(variant, acceleration_recipe='pdd8',
+                                    turbo_enabled=False, use_larry=False, second_pass_sigma=5,
+                                    latent_upscale=True, rtx_upscale=True)
+            self.assertEqual(graph['9170']['class_type'], 'H3PDDAcceleration')
+            self.assertEqual(graph['9170']['inputs']['pdd_lora_name'], 'H3/' + name)
+            self.assertTrue(graph['9170']['inputs']['strict_schedule'])
+            self.assertEqual(graph['125']['inputs']['sigmas'], ['9170', 1])
+            self.assertEqual(graph['126']['inputs']['model'], ['9170', 0])
+            self.assertEqual(graph['9306']['inputs']['model'], graph['9170']['inputs']['model'])
+            self.assertNotIn('154', graph)
+            self.assertEqual(meta['pdd_refinement'], 'dense_base_without_pdd_heads')
+
     def setUp(self):
         test_handler.WorkflowTests.setUp(self)
         for name in ('minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors','minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors'):

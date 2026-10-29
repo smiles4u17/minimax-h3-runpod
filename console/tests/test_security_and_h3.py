@@ -16,6 +16,56 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_acceleration_recipes_forward_full_heads_or_sla_shifts(self):
+        for mode in ('pdd8', 'sla4'):
+            with mock.patch.object(media_console, 'configured_s3_helper', return_value=object()):
+                result = self.client.post('/api/payload/preview/h3', json={
+                    'settings': {'runpod_api_key': 'key', 'h3_endpoint_id': 'test'},
+                    'task': 't2v', 'prompt': 'robot', 'acceleration_recipe': mode})
+            self.assertEqual(result.status_code, 200, result.text)
+            payload = result.json()['payload']
+            self.assertEqual(payload['sampler'], 'euler')
+            self.assertFalse(payload['turbo_enabled'])
+            if mode == 'pdd8':
+                self.assertEqual(payload['task'], 't2v_pdd_20261028')
+                self.assertEqual(payload['pdd_lora'], 'H3/MiniMax-H3-FL2VA-Acc-8Step.safetensors')
+            else:
+                self.assertEqual((payload['shift_video'], payload['shift_audio']), (6, 3))
+                self.assertEqual(payload['sparse_keep_percent'], 15)
+
+    def test_grok_key_is_masked_preserved_and_not_sent_to_worker(self):
+        saved = self.client.post('/api/settings', json={'grok_api_key': 'private-xai-key'}).json()
+        self.assertEqual(saved['grok_api_key'], '')
+        self.assertTrue(saved['secret_fields_configured']['grok_api_key'])
+        self.client.post('/api/settings', json={'grok_api_key': ''})
+        self.assertEqual(media_console.settings()['grok_api_key'], 'private-xai-key')
+        data = {'settings': {'runpod_api_key': 'key', 'h3_endpoint_id': 'test'},
+                'task': 't2v', 'prompt': 'A toy robot', 'turbo_enabled': False,
+                'steps': 8, 'sampler': 'euler',
+                'loras': [{'name': 'H3/disabled.safetensors', 'strength': 0.8, 'enabled': False},
+                          {'name': 'H3/active.safetensors', 'strength': 0.6}]}
+        with mock.patch.object(media_console, 'configured_s3_helper', return_value=object()):
+            result = self.client.post('/api/payload/preview/h3', json=data)
+        self.assertEqual(result.status_code, 200, result.text)
+        payload = result.json()['payload']
+        self.assertEqual(len(payload['loras']), 1)
+        self.assertTrue(payload['loras'][0]['name'].endswith('active.safetensors'))
+        self.assertNotIn('private-xai-key', json.dumps(payload))
+
+    def test_grok_route_returns_enhanced_prompt(self):
+        import grok_enhancer
+        response = mock.Mock(status_code=200)
+        response.json.return_value = {'status': 'completed', 'output': [
+            {'type': 'message', 'role': 'assistant', 'content': [
+                {'type': 'output_text', 'text': 'A toy robot walks in soft light.'}]}]}
+        with mock.patch.object(grok_enhancer.requests, 'post', return_value=response) as post:
+            result = self.client.post('/api/h3/enhance-prompt', json={
+                'prompt': 'A toy robot walks.', 'settings': {'grok_api_key': 'private-key'}})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()['prompt'], 'A toy robot walks in soft light.')
+        self.assertFalse(post.call_args.kwargs['json']['store'])
+
+
     def test_h3_numeric_validation_preserves_zero_cache_threshold(self):
         data = {'settings': {'runpod_api_key': 'key', 'h3_endpoint_id': 'test'},
                 'task': 't2v', 'prompt': 'A toy robot', 'turbo_enabled': False,

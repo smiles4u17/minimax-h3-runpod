@@ -705,6 +705,9 @@ def build_prompt_book_h3_request(
     request["seed_random"] = flag(request, "seed_random", True)
     if not request["seed_random"]:
         request["seed"] = data.get("seed", inherited.get("seed", 0) if inherited is not None else 0)
+    if data.get('acceleration_recipe'):
+        from h3_acceleration import recipe
+        request = recipe({**request, 'acceleration_recipe': data['acceleration_recipe']})
     if isinstance(data.get("settings"), dict):
         request["settings"] = data["settings"]
     endpoint = str(data.get("h3_endpoint_id") or "").strip()

@@ -81,6 +81,8 @@ def apply_variant(graph, payload, materialize, model_name):
             second_conditioning = ['9305', 0]
         # FirstBlockCache only belongs to pass one. Share all preceding LoRAs/attention.
         model = graph['126']['inputs']['model']
+        if graph[model[0]]['class_type'] == 'H3PDDAcceleration':
+            model = graph[model[0]]['inputs']['model']
         if graph[model[0]]['class_type'] == 'MiniMaxH3FirstBlockCache':
             model = graph[model[0]]['inputs']['model']
         add('9306', 'BasicGuider', model=model, conditioning=second_conditioning)
@@ -95,6 +97,8 @@ def apply_variant(graph, payload, materialize, model_name):
                        reference_encoding_reused=reuse_references,
                        latent_refine_strategy='clean_low_noise' if clean_refine else 'split_schedule',
                        second_pass_sigmas=schedules.get(mode, 'remaining'))
+        if payload.get('pdd_enabled'):
+            options['pdd_refinement'] = 'dense_base_without_pdd_heads'
     images = ['122',0]
     if options['rtx_upscale']:
         ratio = str(payload.get('aspect_ratio','16:9')).split()[0]
