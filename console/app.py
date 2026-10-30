@@ -18,9 +18,10 @@ from h3_attention_profiles import apply_profile as apply_attention_profile, vali
 from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults, reference_frame_cap
 import prompt_book_h3
 import h3_acceleration
+from grok_enhancer import INSTRUCTIONS as GROK_DEFAULT_SYSTEM_PROMPT
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.17-h3-acceleration"
+APP_VERSION = "web-v16.18-prompt-book-layout"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -79,7 +80,7 @@ for d in (DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, THUMB_DIR, SAM_DIR):
 
 def defaults() -> dict[str, Any]:
     return {
-        "grok_api_key":"", "grok_model":"grok-4.7",
+        "grok_api_key":"", "grok_model":"grok-4.7", "grok_system_prompt": GROK_DEFAULT_SYSTEM_PROMPT,
         "runpod_api_key":"", "h3_endpoint_id":"s1e3i9book2zhh",
         "poll_interval_seconds":4, "timeout_seconds":3600,
         "s3_endpoint_url":"https://s3api-eu-ro-1.runpod.io", "s3_access_key_id":"", "s3_secret_access_key":"",

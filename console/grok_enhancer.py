@@ -27,12 +27,16 @@ def enhance_prompt(data, settings):
     model = str(settings.get('grok_model') or 'grok-4.7').strip()
     if len(model) > 120:
         raise ValueError('Grok model name is too long.')
+    instructions = settings.get('grok_system_prompt', '')
+    if not isinstance(instructions, str) or len(instructions) > 60000:
+        raise ValueError('Grok system prompt must be text of at most 60,000 characters.')
+    instructions = instructions if instructions.strip() else INSTRUCTIONS
     try:
         response = requests.post(
             'https://api.x.ai/v1/responses',
             headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
             json={'model': model, 'store': False, 'max_output_tokens': 12000,
-                  'instructions': INSTRUCTIONS,
+                  'instructions': instructions,
                   'input': [{'role': 'user', 'content':
                              f'H3 task: {str(data.get("task") or "fl2v")[:80]}\n'
                              f'Duration: {str(data.get("duration") or "unspecified")[:40]} seconds\n'

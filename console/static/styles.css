@@ -522,3 +522,6 @@ body.logsHidden .logHeader{height:38px}
 #promptbook .pbLoraActiveRow>span{flex:1;min-width:220px;font-family:Consolas,"Courier New",monospace;font-size:12px}
 #promptbook .pbLoraActiveRow label{display:flex;align-items:center;gap:5px;color:#9aa3ad;font-size:12px}
 #promptbook .pbLoraActiveRow input{width:76px}
+
+/* The dashboard title bar already names this standalone LoRA section. */
+#pb_lora_section.dashboardCard > h3{display:none}

@@ -16,6 +16,16 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_saved_grok_system_prompt_is_used_by_enhancer(self):
+        instructions = 'Preserve all reference labels.\nUse one concise paragraph.'
+        saved = self.client.post('/api/settings', json={'grok_api_key': 'key', 'grok_system_prompt': instructions})
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(self.client.get('/api/settings').json()['grok_system_prompt'], instructions)
+        with mock.patch('grok_enhancer.enhance_prompt', return_value={'prompt': 'Enhanced', 'model': 'test'}) as enhance:
+            result = self.client.post('/api/h3/enhance-prompt', json={'prompt': 'A toy robot'})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(enhance.call_args.args[1]['grok_system_prompt'], instructions)
+
     def test_acceleration_recipes_forward_full_heads_or_sla_shifts(self):
         for mode in ('pdd8', 'sla4'):
             with mock.patch.object(media_console, 'configured_s3_helper', return_value=object()):

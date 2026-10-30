@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RunPod Media Console Web</title>
-<link rel="stylesheet" href="/static/styles.css?v=16.17" />
+<link rel="stylesheet" href="/static/styles.css?v=16.18" />
 <link rel="stylesheet" href="/static/workspace.css?v=16.09" />
 </head>
 <body>
@@ -376,6 +376,7 @@
 
 <section id="settings" class="tab panel"><h2>Settings</h2><div class="card fields wide">
   <label>Grok API key<input id="grok_api_key" type="password" autocomplete="new-password"></label><label>Grok text model<input id="grok_model" value="grok-4.7"></label>
+  <label style="grid-column:1/-1">Grok system prompt<textarea id="grok_system_prompt" rows="9" maxlength="60000" aria-describedby="grok_system_prompt_hint"></textarea><small id="grok_system_prompt_hint">Instructions used by Enhance with Grok. Save Settings to keep changes. Leave blank to use the built-in H3 instructions.</small></label>
   <label>RunPod API Key<input id="runpod_api_key" type="password"></label><label>MiniMax H3 Endpoint<input id="h3_endpoint_id" value="s1e3i9book2zhh"></label><label>Timeout Seconds<input id="timeout_seconds" type="number" value="3600"></label>
   <label title="Optional Hugging Face token for gated facebook/sam3 checkpoint access. Stored in local settings.">Hugging Face Token<input id="sam_hf_token" type="password" placeholder="hf_..."></label>
   <label title="Global media delivery. Auto matches the old desktop app: small local files go Base64; larger files upload to S3 and send a RunPod volume path.">Global Delivery<select id="delivery_mode"><option value="auto">Auto / desktop behavior</option><option value="runpod_volume_path">RunPod Volume Path</option><option value="s3_url">S3 URL</option><option value="base64">Base64 / direct</option></select></label>
@@ -494,7 +495,7 @@
   </div>
   <div class="card" id="pb_generation">
     <h3>Prompt Book H3 settings</h3>
-    <p class="pbNote">Ref2V uses the selected book references and prompt. Separate Turbo is always off here; these controls do not change the main H3 tab. Only enabled LoRAs added below are sent.</p>
+    <p class="pbNote">Ref2V uses the selected book references and prompt. Separate Turbo is always off here; these controls do not change the main H3 tab. Only enabled LoRAs from the LoRAs section are sent.</p>
     <div class="fields">
       <label title="Where the source clip begins, in seconds.">Start Seconds<input id="pb_start" type="number" min="0" step="0.1" value="0"></label>
       <label title="Generated video length from 1 to 15 seconds, measured from Start Seconds.">Duration Seconds<input id="pb_duration" type="number" min="1" max="15" step="0.1" value="5"></label>
@@ -518,8 +519,8 @@
       <label><input id="pb_rtx_upscale" type="checkbox"> Use RTX video upscale</label>
       <label><input id="pb_diagnostic_frames" type="checkbox"> Save first-pass and pre-RTX diagnostic frames</label>
     </div>
-    <details>
-      <summary>Seed, attention, and cache</summary>
+    <section class="pbSeedAttention">
+      <h4>Seed, attention, and cache</h4>
       <div class="fields">
         <label><input id="pb_seed_random" type="checkbox" checked> Random seed each run</label>
         <label>Seed<input id="pb_seed" type="number" min="0" max="9007199254740991" step="1" value="123456789"></label>
@@ -527,24 +528,8 @@
         <label><input id="pb_cache_enabled" type="checkbox"> Enable FirstBlockCache</label>
         <label>Cache threshold<input id="pb_cache_threshold" type="number" min="0" max="1" step="0.01" value="0.18"></label>
       </div>
-    </details>
-    <details>
-      <summary>Workflow LoRAs</summary>
-      <div class="fields">
-        <label>Local .safetensors file<input id="pb_lora_file" type="file" accept=".safetensors"></label>
-        <button type="button" data-pb-transfer onclick="pbTransferLora('upload')">Upload local LoRA</button>
-        <label>Remote download URL<input id="pb_lora_remote_url" type="url" placeholder="https://huggingface.co/.../model.safetensors"></label>
-        <label>Optional filename<input id="pb_lora_remote_name" placeholder="optional-name.safetensors"></label>
-        <button type="button" data-pb-transfer onclick="pbTransferLora('import')">Import remote LoRA</button>
-      </div><div class="fields">
-        <label>H3 LoRA<select id="pb_lora_library_select"><option value="">Load H3 LoRA library...</option></select></label>
-        <label>Strength<input id="pb_lora_strength" type="number" min="0" max="2" step="0.05" value="1"></label>
-        <button id="pb_add_lora" type="button">Add LoRA</button><button type="button" onclick="pbLoadLoraLibrary(true)">Refresh library</button>
-      </div>
-      <p class="pbNote" id="pb_lora_status">Choose a LoRA from the H3 volume and add it to this prompt-book run.</p>
-      <div id="pb_lora_active" class="h3LoraActive"></div>
-      <textarea id="pb_loras" class="hidden" aria-hidden="true">[]</textarea>
-    </details>
+    </section>
+
   </div>
   <div class="card" id="pb_run">
     <h3>Run on MiniMax H3</h3>
@@ -559,6 +544,33 @@
     <div id="promptbook_output_empty" class="outputEmpty">Completed Prompt Book outputs will appear here.</div>
     <div id="promptbook_output_grid" class="outputGrid"></div>
   </div>
+  <div class="card" id="pb_lora_section">
+    <h3>LoRAs</h3>
+    <div class="h3LoraPanel">
+      <div class="cardTitleRow"><h4>H3 LoRA Library</h4><button type="button" onclick="pbLoadLoraLibrary(true)">Refresh library</button></div>
+      <p class="hint">LoRAs are uploaded to the H3 volume at <code>/runpod-volume/models/loras/H3</code>. Only enabled LoRAs added here are sent with Prompt Book jobs. Existing files are never overwritten without confirmation.</p>
+      <div class="h3LoraUploadGrid">
+        <div class="h3LoraSource">
+          <label>Local .safetensors file<input id="pb_lora_file" type="file" accept=".safetensors,application/octet-stream"></label>
+          <button type="button" data-pb-transfer onclick="pbTransferLora('upload')">Upload local LoRA</button>
+        </div>
+        <div class="h3LoraSource">
+          <label>Remote download URL<input id="pb_lora_remote_url" type="url" placeholder="https://huggingface.co/.../model.safetensors"></label>
+          <label>Filename if URL does not include one<input id="pb_lora_remote_name" placeholder="optional-name.safetensors"></label>
+          <button type="button" data-pb-transfer onclick="pbTransferLora('import')">Import remote LoRA</button>
+        </div>
+      </div>
+      <div class="h3LoraPicker">
+        <label>Available LoRA<select id="pb_lora_library_select"><option value="">Refresh to load H3 volume...</option></select></label>
+        <label>Strength<input id="pb_lora_strength" type="number" min="0" max="2" step="0.05" value="1"></label>
+        <button id="pb_add_lora" type="button">Add to workflow</button>
+      </div>
+      <div id="pb_lora_active" class="h3LoraActive"></div>
+      <p class="trimMeta" id="pb_lora_status">Choose a LoRA from the H3 volume and add it to this Prompt Book run.</p>
+      <textarea id="pb_loras" class="hidden" aria-hidden="true">[]</textarea>
+    </div>
+  </div>
+
 </section>
 
 </main>
@@ -573,16 +585,16 @@
   </div>
   <pre id="log"></pre>
 </section>
-<script src="/static/app.js?v=16.17"></script>
-<script src="/static/prompt_book.js?v=16.17"></script>
+<script src="/static/app.js?v=16.18"></script>
+<script src="/static/prompt_book.js?v=16.18"></script>
 <script src="/static/h3_attention_profiles.js?v=16.14"></script>
 <script src="/static/dashboard.js?v=15.89"></script>
 <script src="/static/h3_job.js?v=16.01"></script>
-<script src="/static/h3_variants.js?v=16.17"></script>
+<script src="/static/h3_variants.js?v=16.18"></script>
 <script src="/static/workspace.js?v=16.15"></script>
 <script src="/static/monitor_jobs.js?v=16.14"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
-<script src="/static/grok_enhancer.js?v=16.17"></script>
-<script src="/static/h3_acceleration.js?v=16.17"></script>
+<script src="/static/grok_enhancer.js?v=16.18"></script>
+<script src="/static/h3_acceleration.js?v=16.18"></script>
 </body>
 </html>

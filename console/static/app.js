@@ -28,7 +28,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>showTab(b.dat
 $('h3_duration')?.addEventListener('input',()=>{updateH3ReferenceVideoFrameCaps();persistSettingsSoon()});
 async function init(){const v=await api('/api/version');$('version').textContent=v.version;setupH3ReferenceInputs();setupH3FrameInputs();setupSamimateReferences();setupH3RecentInputs();setupH3Sections();setupDrops();buildVideoTools('samimate');mountTrimVideoPreview('samimate');setupLogResize();setupSamStudio();setupBrowserEvents();setupImageEditor();SETTINGS=await api('/api/settings');applySettings();applyH3Settings(SETTINGS.h3||{},SETTINGS.h3_storage||{});setupSamimateH3Controls();setChk('h3_seed_random',SETTINGS.h3?.seed_random===true||Number(SETTINGS.h3?.seed)<0);void loadH3ModelLibrary(true);void refreshH3ComfyUIStatus(true);setupWorkflowSuite();$('h3_task')?.addEventListener('change',()=>{if(chk('h3_turbo_enabled')&&val('h3_turbo_family')==='lightx2v')selectH3TurboFamily('lightx2v');updateH3TaskUI();updateH3QualityNotice()});$('h3_turbo_enabled')?.addEventListener('change',()=>{set('h3_sampling_preset','custom');updateH3TurboUI(true)});$('h3_sampler')?.addEventListener('change',()=>{set('h3_sampling_preset','custom');updateH3TurboUI(true)});$('h3_scheduler')?.addEventListener('change',()=>{set('h3_sampling_preset','custom');updateH3QualityNotice()});$('h3_cache_enabled')?.addEventListener('change',()=>{set('h3_sampling_preset','custom');updateH3TurboUI(false)});$('h3_seed_random')?.addEventListener('change',updateH3SeedUI);$('h3_lora_file')?.addEventListener('change',h3LoraFileSelected);updateH3TaskUI();updateH3TurboUI(false);updateH3SeedUI();updateH3PreviewVisibility();applyTooltips();setLogHeight(Number(localStorage.getItem('log_height')||300));log('Web UI ready');void Promise.allSettled([loadTtsVoices(),loadPiperStatus(),loadPrompts(),loadH3SubjectLibrary(),loadBrowserFavorites(),loadCacheInfo(),loadPresets(),loadEndpointProfiles(),loadJobHistory(),refreshRecentOutputs(),browse(SETTINGS.output_dir||'')]).then(results=>{for(const result of results)if(result.status==='rejected')log('Background initialization: '+result.reason?.message)})}
 function applySettings(restore=true){
-  for(const k of ['grok_model','timeout_seconds','delivery_mode','s3_endpoint_url','s3_bucket','s3_region','s3_prefix','runpod_volume_root','output_dir','cache_dir','sam_output_dir','cache_max_age_days','hf_cache_dir'])set(k,SETTINGS[k]);
+  for(const k of ['grok_model','grok_system_prompt','timeout_seconds','delivery_mode','s3_endpoint_url','s3_bucket','s3_region','s3_prefix','runpod_volume_root','output_dir','cache_dir','sam_output_dir','cache_max_age_days','hf_cache_dir'])set(k,SETTINGS[k]);
   set('browser_storage',SETTINGS.browser_s3_storage||'h3');BROWSER_STORAGE=val('browser_storage')||'h3';
   let w={},sm=SETTINGS.samimate||{},sam=SETTINGS.sam||{},tts=SETTINGS.tts||{};
   setChk('cache_cleanup_enabled',SETTINGS.cache_cleanup_enabled!==false);
@@ -41,7 +41,7 @@ function applySecretFieldState(){let configured=SETTINGS.secret_fields_configure
 function gatherBaseSettings(){
   return {
     runpod_api_key:val('runpod_api_key'),
-    grok_api_key:val('grok_api_key'), grok_model:val('grok_model')||'grok-4.7',
+    grok_api_key:val('grok_api_key'), grok_model:val('grok_model')||'grok-4.7', grok_system_prompt:val('grok_system_prompt'),
     timeout_seconds:+val('timeout_seconds')||3600,
     delivery_mode:val('delivery_mode'),
     browser_s3_storage:val('browser_storage')||'h3',

@@ -26,7 +26,7 @@ function pbRenderLoras() {
   if (!box) return;
   const items = pbLoras();
   box.innerHTML = items.length
-    ? items.map((item, index) => `<div class="h3LoraActiveRow"><label class="loraToggle"><input type="checkbox" role="switch" ${item.enabled !== false ? 'checked' : ''} data-pb-lora-enabled="${index}"> On</label><span><strong>${pbEsc(item.name.split('/').pop())}</strong><small>${pbEsc(item.name)}</small></span><label>Strength<input type="number" min="0" max="2" step="0.05" value="${Number(item.strength ?? 1)}" data-pb-lora-strength="${index}"></label><button type="button" data-pb-lora-remove="${index}">Remove</button></div>`).join('')
+    ? items.map((item, index) => `<div class="h3LoraActiveRow"><label class="loraToggle"><input type="checkbox" role="switch" ${item.enabled !== false ? 'checked' : ''} data-pb-lora-enabled="${index}"> On</label><span><strong>${pbEsc(item.name.split('/').pop().replace(/\.safetensors$/i, ''))}</strong><small>${pbEsc(item.name)}</small></span><label>Strength<input type="number" min="0" max="2" step="0.05" value="${Number(item.strength ?? 1)}" data-pb-lora-strength="${index}"></label><button type="button" data-pb-lora-remove="${index}">Remove</button></div>`).join('')
     : '<span class="loraEmpty">No active Prompt Book LoRAs</span>';
 }
 

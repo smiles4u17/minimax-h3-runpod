@@ -10,7 +10,8 @@ async function enhanceH3Prompt() {
     const result = await api('/api/h3/enhance-prompt', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({prompt: original, task: val('h3_task'), duration: val('h3_duration'),
-        settings: {grok_api_key: val('grok_api_key'), grok_model: val('grok_model') || 'grok-4.7'}}),
+        settings: {grok_api_key: val('grok_api_key'), grok_model: val('grok_model') || 'grok-4.7',
+          grok_system_prompt: val('grok_system_prompt')}}),
     });
     if (val('h3_prompt') !== original) {
       status.textContent = 'Prompt changed while enhancing. Your edits were kept; click again to enhance them.';
