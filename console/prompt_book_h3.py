@@ -33,7 +33,7 @@ BETA5_MODEL = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
 H3_GENERATION_FIELDS = {
     "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
     "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
-    "latent_upscale_model", "cache_enabled", "cache_threshold", "attention", "attention_profile", "reference_resolution",
+    "latent_upscale_model", "latent_upscale_precision", "cache_enabled", "cache_threshold", "attention", "attention_profile", "reference_resolution",
     "seed", "seed_random", "turbo_enabled", "use_larry", "turbo_family",
     "turbo_lora", "turbo_strength", "pdd_enabled", "sampling_preset",
     "sparse_keep_percent", "sparse_tau", "sparse_start_percent",

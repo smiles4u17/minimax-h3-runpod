@@ -51,6 +51,16 @@ class VariantTests(unittest.TestCase):
         with mock.patch.object(handler,'_materialize_asset',return_value='fixture.png'):
             return handler.build_preset(data)
 
+    def test_upscaler_precision_reaches_graph(self):
+        for variant in ('fflf_20260920', 'ref2v_20260920'):
+            for precision in ('bf16', 'fp16', 'fp32'):
+                graph, meta = self.build(variant, latent_upscale_precision=precision)
+                self.assertEqual(graph['9303']['inputs']['precision'], precision)
+        graph, _ = self.build()
+        self.assertEqual(graph['9303']['inputs']['precision'], 'bf16')
+        with self.assertRaisesRegex(ValueError, 'precision'):
+            self.build(latent_upscale_precision='fp8')
+
     def test_all_sigma_choices_and_final_outputs(self):
         for variant in ('fflf_20260920','ref2v_20260920'):
             for choice in (1,2,3,4):

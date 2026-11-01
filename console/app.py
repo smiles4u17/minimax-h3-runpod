@@ -21,7 +21,7 @@ import h3_acceleration
 from grok_enhancer import INSTRUCTIONS as GROK_DEFAULT_SYSTEM_PROMPT
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.19-grok-attachments"
+APP_VERSION = "web-v16.20-latent-precision"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -5209,7 +5209,7 @@ async def run_h3(data: dict[str, Any]):
             "audio_vae", "clip_projection", "turbo_enabled", "turbo_family", "turbo_lora", "turbo_strength",
             "loras", "first_frame", "last_frame", "references", "reference_videos", "reference_video_audio", "reference_video_settings", "reference_audios", "audio",
             "use_reference_audio_as_output", "output_upload_urls", "workflow", "output_layout", "masked_edit",
-            "workflow_variant", "output_mode", "photos", "keyframe_positions", "use_multi_image", "latent_upscale", "rtx_upscale", "use_larry", "final_megapixels", "second_pass_sigma", "pass1_split", "latent_upscale_model", "diagnostic_frames",
+            "workflow_variant", "output_mode", "photos", "keyframe_positions", "use_multi_image", "latent_upscale", "rtx_upscale", "use_larry", "final_megapixels", "second_pass_sigma", "pass1_split", "latent_upscale_model", "latent_upscale_precision", "diagnostic_frames",
         }
         conflicts = sorted(protected.intersection(advanced))
         if conflicts:

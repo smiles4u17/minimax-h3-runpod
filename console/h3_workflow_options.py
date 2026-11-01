@@ -41,7 +41,10 @@ def workflow_options(data):
     reference_resolution = data.get('reference_resolution', 'generation')
     if reference_resolution not in ('generation', 'original'):
         raise ValueError('Reference resolution must be generation or original')
-    result = {"workflow_variant": variant, "use_multi_image": flag("use_multi_image", False),
+    precision = data.get("latent_upscale_precision", "bf16")
+    if precision not in ("bf16", "fp16", "fp32"):
+        raise ValueError("Latent upscale precision must be bf16, fp16 or fp32")
+    result = {"latent_upscale_precision": precision, "workflow_variant": variant, "use_multi_image": flag("use_multi_image", False),
             "latent_upscale": flag("latent_upscale", True), "rtx_upscale": flag("rtx_upscale", True),
             "turbo_enabled": flag("turbo_enabled", True), "use_larry": flag("use_larry", False), "final_megapixels": number("final_megapixels", 1.0, .2, 2),
             "second_pass_sigma": int(mode), "pass1_split": int(split), "reference_resolution": reference_resolution,
