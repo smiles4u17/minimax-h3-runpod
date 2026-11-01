@@ -21,7 +21,7 @@ import h3_acceleration
 from grok_enhancer import INSTRUCTIONS as GROK_DEFAULT_SYSTEM_PROMPT
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.18-prompt-book-layout"
+APP_VERSION = "web-v16.19-grok-attachments"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -2863,13 +2863,66 @@ async def enhance_h3_prompt(data: dict[str, Any]):
     from grok_enhancer import enhance_prompt
     cfg = runtime_settings(data.get("settings") or {})
     try:
-        return await run_in_threadpool(enhance_prompt, data, cfg)
+        return await run_in_threadpool(enhance_prompt, data, cfg, prepare_grok_media)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except TimeoutError as exc:
         raise HTTPException(504, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+def prepare_grok_media(data, cfg):
+    import grok_media
+    import mimetypes
+    import tempfile
+    if not grok_media.attachments(data):
+        return {'content': [], 'reviewed': [], 'warnings': []}
+    with tempfile.TemporaryDirectory(prefix='grok-media-', dir=TEMP_DIR) as folder:
+        def resolve(source):
+            parsed = urllib.parse.urlparse(source)
+            if parsed.scheme not in {'http', 'https', 's3'}:
+                return source
+            target = Path(folder) / (uuid.uuid4().hex + (Path(parsed.path).suffix or '.bin'))
+            if parsed.scheme == 's3':
+                helper = require_h3_s3(cfg)
+                body = helper.call('get_object', Bucket=parsed.netloc, Key=parsed.path.lstrip('/'))['Body']
+                try:
+                    with target.open('wb') as output:
+                        total = 0
+                        for chunk in body.iter_chunks(chunk_size=1024 * 1024):
+                            total += len(chunk)
+                            if total > 128 * 1024 * 1024:
+                                raise ValueError('Remote attachment exceeds 128 MiB')
+                            output.write(chunk)
+                finally:
+                    body.close()
+            else:
+                host = parsed.hostname or ''
+                try:
+                    loopback = ipaddress.ip_address(host).is_loopback
+                except ValueError:
+                    loopback = host.lower() == 'localhost'
+                if parsed.username or parsed.password:
+                    raise ValueError('Attachment URL credentials are not supported')
+                response = (requests.get(source, stream=True, allow_redirects=False, timeout=(10, 30)) if loopback
+                            else scoped_model_get(source, {}, stream=True, timeout=(10, 30)))
+                with response:
+                    if response.status_code != 200:
+                        raise ValueError('Attachment URL unavailable')
+                    mime = response.headers.get('Content-Type', '').split(';')[0].lower()
+                    if not mime.startswith(('image/', 'video/', 'audio/')):
+                        raise ValueError('Attachment URL did not return media')
+                    target = target.with_suffix(mimetypes.guess_extension(mime) or target.suffix)
+                    with target.open('wb') as output:
+                        total = 0
+                        for chunk in response.iter_content(1024 * 1024):
+                            total += len(chunk)
+                            if total > 128 * 1024 * 1024:
+                                raise ValueError('Remote attachment exceeds 128 MiB')
+                            output.write(chunk)
+            return str(target)
+        return grok_media.prepare(data, cfg, resolve, ffmpeg_bin(), video_probe)
 
 
 @app.get("/api/settings")

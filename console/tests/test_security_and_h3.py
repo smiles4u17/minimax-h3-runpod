@@ -16,6 +16,23 @@ import app as media_console
 
 
 class SecurityAndH3Tests(unittest.TestCase):
+    def test_grok_route_resolves_image_but_does_not_send_local_path(self):
+        import grok_enhancer
+        from PIL import Image
+        picture = Path(self.temp_dir.name) / 'attached.png'
+        Image.new('RGB', (8, 8), 'blue').save(picture)
+        response = mock.Mock(status_code=200)
+        response.json.return_value = {'status': 'completed', 'output': [
+            {'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': 'A blue robot.'}]}]}
+        with mock.patch.object(grok_enhancer.requests, 'post', return_value=response) as post:
+            result = self.client.post('/api/h3/enhance-prompt', json={'prompt': 'A robot',
+                'task': 'fl2v', 'photo_paths': [str(picture)], 'settings': {'grok_api_key': 'key'}})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()['media_reviewed'], ['<Picture 1>: image'])
+        body = post.call_args.kwargs['json']
+        self.assertTrue(any(x['type'] == 'input_image' for x in body['input'][0]['content']))
+        self.assertNotIn(str(picture), json.dumps(body))
+
     def test_saved_grok_system_prompt_is_used_by_enhancer(self):
         instructions = 'Preserve all reference labels.\nUse one concise paragraph.'
         saved = self.client.post('/api/settings', json={'grok_api_key': 'key', 'grok_system_prompt': instructions})

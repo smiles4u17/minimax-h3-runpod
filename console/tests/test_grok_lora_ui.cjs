@@ -39,6 +39,28 @@ vm.runInContext(fs.readFileSync('static/grok_enhancer.js', 'utf8'), scope);
   assert.equal(values.h3_prompt, 'A robot walks in soft light.');
   vm.runInContext('undoH3Enhancement()', scope);
   assert.equal(values.h3_prompt, 'A robot walks.');
+  let attached = 'selected.png';
+  scope.h3Settings = () => ({task:'fl2v', duration:7, photo_paths:[attached], reference_video_paths:['unused.mp4']});
+  scope.api = async (_route, options) => {
+    const request = JSON.parse(options.body);
+    assert.equal(request.photo_paths[0], 'selected.png');
+    assert.equal(request.use_attached_media, true);
+    attached = 'changed.png';
+    return {prompt:'Result for old attachment',model:'grok-4.7'};
+  };
+  await vm.runInContext('enhanceH3Prompt()', scope);
+  assert.equal(values.h3_prompt, 'A robot walks.');
+  assert.match(elements.h3_enhance_status.textContent, /attachments changed/);
+  elements.h3_enhance_media = {checked:false};
+  scope.api = async (_route, options) => {
+    assert.equal(JSON.parse(options.body).use_attached_media, false);
+    assert.equal(JSON.parse(options.body).photo_paths, undefined);
+    return {prompt:'Text only result',model:'grok-4.7',media_warnings:['<Audio 1>: unavailable']};
+  };
+  await vm.runInContext('enhanceH3Prompt()', scope);
+  assert.match(elements.h3_enhance_status.textContent, /Audio 1/);
+  vm.runInContext('undoH3Enhancement()', scope);
+  delete scope.h3Settings;
   scope.api = async () => { values.h3_prompt = 'New user edits'; return {prompt: 'Stale result'}; };
   await vm.runInContext('enhanceH3Prompt()', scope);
   assert.equal(values.h3_prompt, 'New user edits');

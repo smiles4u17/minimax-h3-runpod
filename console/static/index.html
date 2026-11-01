@@ -131,7 +131,7 @@
           <button type="button" class="secondaryButton" onclick="deletePrompt('h3')">Delete</button>
         </div>
       </div>
-      <div class="fields"><button id="h3_enhance_button" type="button" onclick="enhanceH3Prompt()">Enhance with Grok</button><button id="h3_enhance_undo" type="button" onclick="undoH3Enhancement()" disabled>Restore original</button><span id="h3_enhance_status" role="status">Sends this prompt to xAI; review the result before running H3.</span></div>
+      <div class="fields"><button id="h3_enhance_button" type="button" onclick="enhanceH3Prompt()">Enhance with Grok</button><button id="h3_enhance_undo" type="button" onclick="undoH3Enhancement()" disabled>Restore original</button><label><input id="h3_enhance_media" type="checkbox" checked> Use attached media</label><span id="h3_enhance_status" role="status">Sends the prompt and available attachments to xAI. Videos use sampled frames; audio uses speech transcription. Uncheck for text only.</span></div>
       <div class="h3PromptComposer"><textarea id="h3_prompt" rows="12" title="Full MiniMax H3 prompt. Enabled subject definitions are inserted at the top automatically.">A cinematic shot with natural, stable motion.</textarea><div class="h3RunTop"><button id="h3_run_button" class="run h3PrimaryRun" onclick="runH3()">Run MiniMax H3</button><button id="h3_cancel_button" type="button" onclick="cancelCurrentH3Job()" disabled>Cancel current job</button><span id="h3_status" class="trimMeta"></span></div></div>
       <div id="h3_subject_prompt_status" class="h3SubjectPromptStatus">No Subject Book definitions enabled.</div>
       <details class="h3InlineDetails"><summary>Advanced prompt overrides</summary><label title="Advanced object merged into the H3 request after the visible controls.">Advanced JSON<textarea id="h3_advanced" rows="4">{}</textarea></label></details>
@@ -594,7 +594,7 @@
 <script src="/static/workspace.js?v=16.15"></script>
 <script src="/static/monitor_jobs.js?v=16.14"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
-<script src="/static/grok_enhancer.js?v=16.18"></script>
+<script src="/static/grok_enhancer.js?v=16.19"></script>
 <script src="/static/h3_acceleration.js?v=16.18"></script>
 </body>
 </html>
