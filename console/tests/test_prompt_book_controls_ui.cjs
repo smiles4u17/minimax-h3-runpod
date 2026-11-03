@@ -22,6 +22,8 @@ function select(initial) {
 }
 
 const elements = {
+  pb_latent_upscale_model: select('minimax_h3_latent_upscaler_3d_bf16.safetensors'),
+  pb_latent_upscale_precision: select('bf16'),
   pb_sampler: select('euler'), pb_scheduler: select('simple'),
   pb_model: select('10Eros_Max_h3_TURBO-hybrid_beta5.safetensors'),
   pb_aspect_ratio: select('9:16 (Portrait Widescreen)'),
@@ -39,7 +41,7 @@ const context = {
   document: {readyState: 'loading', addEventListener() {}},
   $: id => elements[id] || (id in checked ? {checked: checked[id]} : undefined),
   val: id => values[id] ?? elements[id]?.value ?? '',
-  set: (id, value) => { values[id] = String(value); },
+  set: (id, value) => { if(elements[id]) elements[id].value=String(value); else values[id] = String(value); },
   payloadSettings: () => ({}),
   alert: message => { throw new Error(message); },
   api: async route => route === '/api/h3/sampling'
@@ -64,9 +66,21 @@ vm.runInContext(source, context);
   assert.deepEqual(elements.pb_scheduler.options.map(option => option.value), catalog.schedulers);
   assert.deepEqual(elements.pb_model.options.map(option => option.value),
     ['10Eros_Max_h3_TURBO-hybrid_beta5.safetensors', 'selected-ref2v.safetensors']);
+  elements.pb_latent_upscale_model.value = 'minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors';
+  vm.runInContext('pbMatchUpscalerPrecision(); pbSaveGeneration()', context);
+  assert.equal(elements.pb_latent_upscale_precision.value, 'fp16');
+  elements.pb_latent_upscale_precision.value = 'fp32';
+  vm.runInContext('pbSaveGeneration()', context);
+  elements.pb_latent_upscale_model.value = 'reset';
+  elements.pb_latent_upscale_precision.value = 'bf16';
+  vm.runInContext('pbRestoreGeneration()', context);
+  assert.equal(elements.pb_latent_upscale_model.value, 'minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors');
+  assert.equal(elements.pb_latent_upscale_precision.value, 'fp32', 'Keep explicit precision overrides across reload');
   elements.pb_sampler.value = 'res_multistep';
   elements.pb_scheduler.value = 'karras';
   const generation = vm.runInContext('pbGenerationSettings()', context);
+  assert.equal(generation.latent_upscale_model, 'minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors');
+  assert.equal(generation.latent_upscale_precision, 'fp32');
   assert.equal(generation.sampler, 'res_multistep');
   assert.equal(generation.scheduler, 'karras');
   assert.equal(generation.steps, 20);
@@ -91,6 +105,8 @@ vm.runInContext(source, context);
   assert.equal(sent.trim_start, '145');
   assert.equal(sent.trim_end, '147');
   assert.equal(sent.reference_resolution, 'original');
+  assert.equal(sent.latent_upscale_model, generation.latent_upscale_model);
+  assert.equal(sent.latent_upscale_precision, 'fp32');
   values.pb_video_end = '145';
   sent = null;
   await assert.rejects(vm.runInContext('runPromptBook()', context), /Trim end must be after/);

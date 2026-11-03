@@ -2,7 +2,7 @@ let PB = {catalog: null, subject: '', subjectB: '', video: '', family: '', subje
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
 const PB_GENERATION_STORE = 'prompt-book-h3-generation-v1';
 const PB_DEFAULT_MODEL = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors';
-const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'attention_profile', 'cache_enabled', 'cache_threshold', 'reference_resolution', 'acceleration_recipe'];
+const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'latent_upscale_model', 'latent_upscale_precision', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'attention_profile', 'cache_enabled', 'cache_threshold', 'reference_resolution', 'acceleration_recipe'];
 
 function pbEsc(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -496,6 +496,11 @@ function pbGenerationNumber(id, label, low, high, whole = false) {
   return number;
 }
 
+function pbMatchUpscalerPrecision() {
+  const match = val('pb_latent_upscale_model').match(/_(bf16|fp16|fp32)\.(?:safetensors|pth)$/);
+  if (match) set('pb_latent_upscale_precision', match[1]);
+}
+
 function pbGenerationSettings() {
   const steps = pbGenerationNumber('pb_steps', 'Steps', 1, 1000, true);
   const latent = pbChecked('pb_latent_upscale');
@@ -513,6 +518,8 @@ function pbGenerationSettings() {
     steps, sampler, scheduler, pass1_split: split, second_pass_sigma: second,
     megapixels: pbGenerationNumber('pb_megapixels', 'First-pass size', 0.2, 2),
     latent_upscale: latent,
+    latent_upscale_model: val('pb_latent_upscale_model') || 'minimax_h3_latent_upscaler_3d_bf16.safetensors',
+    latent_upscale_precision: val('pb_latent_upscale_precision') || 'bf16',
     final_megapixels: latent ? pbGenerationNumber('pb_final_megapixels', 'Final size', 0.2, 2) : 0.9,
     rtx_upscale: pbChecked('pb_rtx_upscale'),
     reference_resolution: val('pb_reference_resolution') || 'generation',
@@ -527,7 +534,7 @@ function pbGenerationSettings() {
 
 function pbUpdateGenerationControls() {
   const latent = pbChecked('pb_latent_upscale');
-  for (const id of ['pb_pass1_split', 'pb_second_pass_sigma', 'pb_final_megapixels']) if ($(id)) $(id).disabled = !latent;
+  for (const id of ['pb_pass1_split', 'pb_second_pass_sigma', 'pb_final_megapixels', 'pb_latent_upscale_model', 'pb_latent_upscale_precision']) if ($(id)) $(id).disabled = !latent;
   if ($('pb_pass1_split') && val('pb_second_pass_sigma') !== '4') $('pb_pass1_split').disabled = true;
   if ($('pb_seed')) $('pb_seed').disabled = pbChecked('pb_seed_random');
   if ($('pb_cache_threshold')) $('pb_cache_threshold').disabled = !pbChecked('pb_cache_enabled');
@@ -668,6 +675,7 @@ function bindPromptBook() {
     element?.addEventListener('change', () => {
       if (name === 'aspect_ratio') PB.aspectTouched = true;
       pbSaveGeneration();
+      if (name === 'latent_upscale_model') pbMatchUpscalerPrecision();
     });
     if (element?.type === 'number') element.addEventListener('input', pbUpdateGenerationControls);
   }

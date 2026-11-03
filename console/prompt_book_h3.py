@@ -624,6 +624,8 @@ def build_prompt_book_h3_request(
         "diagnostic_frames": flag(data, "diagnostic_frames", False),
         "reference_resolution": data.get('reference_resolution', 'generation'),
         "megapixels": megapixels,
+        "latent_upscale_model": data.get("latent_upscale_model") or "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+        "latent_upscale_precision": data.get("latent_upscale_precision", "bf16"),
         "final_megapixels": final_megapixels,
         "sparse_keep_percent": parse_number(data.get("sparse_keep_percent"), 10, 0.5, 95, "Sparse keep percent"),
         "sparse_tau": parse_number(data.get("sparse_tau"), 1.3, 0, 4, "Sol threshold"),
@@ -665,6 +667,7 @@ def build_prompt_book_h3_request(
         loras = list(main_loras)
         def lora_key(item: dict[str, Any]) -> str:
             return str(item.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        "latent_upscale_model", "latent_upscale_precision",
         for extra in extra_loras:
             if not isinstance(extra, dict) or not str(extra.get("name") or "").strip():
                 raise ValueError("Prompt Book LoRAs need a name")

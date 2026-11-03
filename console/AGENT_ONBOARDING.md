@@ -1,3 +1,10 @@
+## 2026-11-02 - Prompt Book upscaler controls
+
+- Added independent Prompt Book model and inference-precision selectors under Resolution and output. Options match the already-installed RunPod original/v1 BF16, v1 FP16, v1 FP32 files. Controls activate with Use latent upscale / second pass; model selection matches precision, with override allowed.
+- Both choices persist with Prompt Book settings and are sent in its own request. Direct fields override inherited main-H3 fields before shared validation. Browser confirmed FP16 matching and restoration across reload. Original model, precision and latent-upscale checkbox restored after testing.
+- Tests: 15 Prompt Book backend tests, 61 console security/H3 tests, exact-staged Prompt Book frontend controls test, and JS syntax passed. Mocked submitted-worker payload verified FP32 selection; no paid GPU generation was needed because worker precision/model loading was already verified in the previous task.
+- Running console restarted on localhost:8765 as web-v16.21-prompt-book-upscaler. Worker code and model volume unchanged. Published source intentionally excludes unrelated pending scene-audio/worker edits.
+
 ## 2026-11-01: selectable latent upscaler precision
 
 Console v16.20 adds original/v1 BF16, v1 FP16 and v1 FP32 selections. Model selection sets matching inference precision; override is persisted separately and validated through worker graph creation. Models are installed only on RunPod volume vr7s51m6ay using console streaming import. No local model files. 18 workflow, 61 console, 15 Prompt Book regression tests passed, as did JavaScript syntax and split-control checks. Deployment and GPU validation are tracked in the root workspace handoff; do not infer completed deployment from this source commit.

@@ -272,8 +272,11 @@ class PromptBookH3Tests(unittest.TestCase):
                          (20, "res_multistep", "karras"))
         self.assertEqual((request["pass1_split"], request["second_pass_sigma"]), (14, 5))
         self.assertEqual(request["ref2va_model"], "selected-ref2v.safetensors")
+             "latent_upscale_model": "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
+             "latent_upscale_precision": "fp16",
         self.assertEqual(request["seed"], 42)
         self.assertFalse(request["turbo_enabled"])
+                               "latent_upscale_model": "old.safetensors", "latent_upscale_precision": "bf16",
         self.assertNotIn("turbo_lora", request)
         self.assertEqual(request["loras"], [{"name": "book.safetensors", "strength": 0.7}])
 
@@ -283,6 +286,8 @@ class PromptBookH3Tests(unittest.TestCase):
                 {"subject_id": "ada", "video_id": "clip", "sampler": sampler},
                 catalog=self.catalog(), baked={"prompt": "Book prompt"})
             self.assertEqual(request["sampler"], sampler)
+        self.assertEqual(request["latent_upscale_model"], "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors")
+        self.assertEqual(request["latent_upscale_precision"], "fp16")
         for scheduler in sorted(prompt_book_h3.H3_SCHEDULERS):
             request, _ = prompt_book_h3.build_prompt_book_h3_request(
                 {"subject_id": "ada", "video_id": "clip", "scheduler": scheduler},
@@ -522,3 +527,7 @@ class PromptBookH3Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+                "latent_upscale_model": "minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth",
+                "latent_upscale_precision": "fp32",
+        self.assertEqual(payload["latent_upscale_model"], "minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth")
+        self.assertEqual(payload["latent_upscale_precision"], "fp32")
