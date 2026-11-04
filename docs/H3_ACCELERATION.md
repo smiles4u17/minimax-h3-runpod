@@ -9,7 +9,7 @@ an explicit model/schedule change; selecting Custom restores the previous values
   node, exact eight-NFE sigmas, Euler and 12/3 shifts. Separate Turbo, sparse
   attention and FirstBlockCache are disabled. Creative LoRAs remain available;
   disable other acceleration adapters before selecting this recipe.
-- SLA: FL2V/T2V stock INT8 checkpoint, converted LightX2V SLA adapter at strength
+- SLA four-step preset: FL2V/T2V stock INT8 checkpoint, converted LightX2V SLA adapter at strength
   one, native BlockSparseAttention, Euler four steps, 6/3 shifts and 15% exact
   blocks. The installed weights do not support Ref2V.
 - Sol: available through the existing Attention workflow selector, using the
@@ -20,7 +20,10 @@ an explicit model/schedule change; selecting Custom restores the previous values
 The existing learned latent upscale and RTX stages remain enabled as configured.
 PDD completes its exact first pass, then uses the base model without PDD heads
 for a separate low-noise refinement pass. Remaining-first-pass sigmas are
-incompatible with these recipes. Prompt Book supports PDD and Sol; SLA is FL2V only.
+incompatible with these recipes. Prompt Book supports PDD, Sol and generic SLA
+attention. Only the paired four-step SLA acceleration preset is FL2V-only.
+Generic SLA attention preserves the selected Ref2V/10Eros model and sampler; it
+does not install the FL2V adapter or force four steps.
 
 PDD source is vendored under custom_nodes/h3_pdd at commit
 c5f103aeafca90551f833b3a8a941776455d79e7 with its MIT license and two support

@@ -17,12 +17,15 @@ the worker rejects it if the native sparse kernel is unavailable for its card.
 Selecting an attention recipe changes attention/cache controls, not duration,
 resolution, first-pass steps or upscale settings.
 
-SLA is restricted to the standard FL2VA INT8 checkpoint plus the converted
-`minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors` adapter, four
-Euler/simple steps, no separate Turbo adapter, and trained-weights confirmation.
-Ref2V and hybrid checkpoints are rejected. The UI disables this recipe until
-the task/model/adapter match. VSA is disabled: no matching native-worker weights
-have been validated. A confirmation checkbox alone cannot bypass these checks.
+SLA in Attention workflow selects native top-k sparse attention for FL2V or
+Ref2V, including 10Eros checkpoints. It preserves the model, LoRAs, sampler and
+step count and does not require a trained-weights confirmation. Quality depends
+on the checkpoint and sparsity; availability is not a quality or speed claim.
+The separate SLA four-step acceleration preset still requires the standard
+FL2VA INT8 checkpoint, converted
+`minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors` adapter,
+four Euler/simple steps and its matching flow shifts. That FL2V adapter is not
+a Ref2V preset. VSA remains disabled without validated compatible weights.
 Sparse modes cannot combine with FirstBlockCache. Native kernels can keep short
 sequences, conditioning and some layers dense; execution logs explain fallback.
 
