@@ -21,7 +21,8 @@
     const card = catalog.cards[value(prefix + '_attention_card')];
     const hint = document.getElementById(prefix + '_attention_profile_hint');
     hint.textContent = [card ? card.label + ': ' + card.encoder + ' encoder, Sage dense default.' : catalog.note,
-                        profile?.evidence || ''].join(' ');
+                        profile?.evidence || '',
+                        prefix === 'pb' ? 'SLA is unavailable for Prompt Book Ref2V. VSA is unavailable until compatible weights are validated.' : ''].filter(Boolean).join(' ');
     const sla = document.querySelector(`#${prefix}_attention_profile option[value="sla"]`);
     if (sla) {
       const settings = prefix === 'h3' ? h3Settings() : {};
@@ -44,6 +45,15 @@
     for (const [id, item] of Object.entries(catalog.profiles)) {
       const option = document.createElement('option'); option.value = id; option.textContent = item.label; option.disabled = !!item.disabled; profiles.append(option);
     }
+    // Profile controls arrive after Prompt Book binds its ordinary field listeners.
+    const save = () => prefix === 'pb' ? window.pbSaveGeneration?.() : window.persistSettingsSoon?.();
+    for (const item of Object.values(catalog.profiles)) {
+      if (item.attention && !item.disabled && item.attention !== 'sla'
+          && !Array.from(attention.options).some(option => option.value === item.attention)) {
+        const option = document.createElement('option');
+        option.value = item.attention; option.textContent = item.label; attention.append(option);
+      }
+    }
     profiles.value = catalog.profiles[saved] && !catalog.profiles[saved].disabled ? saved : 'custom';
     cards.onchange = () => refresh(prefix);
     profiles.onchange = () => {
@@ -53,9 +63,9 @@
         const cache = document.getElementById(prefix + '_cache_enabled'); if (cache) cache.checked = false;
       }
       refresh(prefix);
-      if (prefix === 'h3') window.persistSettingsSoon?.();
+      save();
     };
-    attention.addEventListener('change', () => { profiles.value = 'custom'; refresh(prefix); });
+    attention.addEventListener('change', () => { profiles.value = 'custom'; refresh(prefix); save(); });
     profiles.addEventListener('focus', () => refresh(prefix));
     refresh(prefix);
   }
