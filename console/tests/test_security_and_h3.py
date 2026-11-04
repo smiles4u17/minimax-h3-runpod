@@ -162,6 +162,11 @@ class SecurityAndH3Tests(unittest.TestCase):
             response=self.client.post('/api/run/h3',json=bad)
             self.assertEqual(response.status_code,400,response.text);upload.assert_not_called();submit.assert_not_called()
 
+    def test_pdd_basis_failure_explains_the_stage(self):
+        hints = media_console.explain_error_text("The PDD AdaLN factors could not be rebased. best basis fit is 9.57e-02")
+        self.assertTrue(any("before sampling" in hint for hint in hints))
+        self.assertFalse(any("No known pattern" in hint for hint in hints))
+
     def test_comfy_read_timeout_is_a_busy_worker_not_a_rejected_prompt(self):
         hints = media_console.explain_error_text(
             "HTTPConnectionPool(host='127.0.0.1', port=8188): Read timed out. (read timeout=30)"

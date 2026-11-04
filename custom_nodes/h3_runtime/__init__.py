@@ -48,7 +48,8 @@ async def resolve_models(request):
     return web.json_response({'models': result})
 
 from .reference_scale import H3ReferenceVideoScale
-NODE_CLASS_MAPPINGS = {'H3ReferenceVideoScale': H3ReferenceVideoScale}
+from .pdd_validation import H3PDDValidationOutput
+NODE_CLASS_MAPPINGS = {'H3ReferenceVideoScale': H3ReferenceVideoScale, 'H3PDDValidationOutput': H3PDDValidationOutput}
 
 
 @PromptServer.instance.routes.post('/h3/attention-check')

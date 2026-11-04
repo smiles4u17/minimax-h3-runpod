@@ -1,3 +1,9 @@
+## 2026-11-03 - PDD basis repair and validation
+
+Job afa618c9-374a-4752-b247-ad0956e3b2ed-u1 reached model setup and failed at H3PDDAcceleration before sampling, with residual 9.57e-2. It used the standard pruned FL2VA INT8 checkpoint and the v1 FP16 upscaler; the upscaler never executed. The checkpoint table read from the RunPod volume in RAM fits the bundled FL2VA grid at 1.46e-5 with an FP64 SVD solve, below the unchanged 5e-3 gate.
+
+Changed basis solve to FP64 CPU SVD with residual measured after returned FP32 coefficients, invalidated older basis cache namespace, and prevented failed fits being cached/reused. Added model-only H3PDDValidationOutput receipt for integrated PDD setup verification without video sampling or a user generation retry. Console error hints now identify PDD AdaLN failures. 3 basis/cache regressions, 18 workflow regressions, 62 console tests and syntax checks passed. Deployment/integrated verification pending; no failed user job was resubmitted. Unrelated pending audio/launcher changes are excluded from this publication.
+
 ## 2026-11-02 - Prompt Book upscaler controls
 
 - Added independent Prompt Book model and inference-precision selectors under Resolution and output. Options match the already-installed RunPod original/v1 BF16, v1 FP16, v1 FP32 files. Controls activate with Use latent upscale / second pass; model selection matches precision, with override allowed.

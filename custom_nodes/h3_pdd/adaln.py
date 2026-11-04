@@ -70,7 +70,7 @@ GRID_FILENAME_PREFIX = "h3_silu_temb_grid"
 GRID_TENSOR_KEY = "silu_t_emb_grid"
 # Bump whenever candidate discovery/selection changes so an older, merely
 # acceptable single-grid fit cannot hide a newly available better variant.
-BASIS_CACHE_VERSION = "g3"
+BASIS_CACHE_VERSION = "g4_svd64"
 
 ADALN_WEIGHT_SUFFIX = "adaln_proj.linear.weight"
 TE_IN_W = "time_embedder.proj_in.weight"
@@ -114,7 +114,11 @@ def solve_basis(table, grid):
                          % (table.shape[0], grid.shape[0]))
     ones = torch.ones(table.shape[0], 1, dtype=torch.float32)
     x = torch.cat([ones, table], dim=1)
-    sol = torch.linalg.lstsq(x, grid).solution          # [1 + k, D]
+    # The small curve basis is poorly conditioned. Default FP32 QR rank
+    # detection can discard valid directions on different LAPACK builds.
+    # Solve on CPU with FP64 SVD and measure the coefficients actually returned.
+    sol = torch.linalg.lstsq(x.double(), grid.double(), driver="gelsd",
+                            rcond=1e-10).solution.float()
     resid = x @ sol - grid
     denom = grid.norm()
     rel = float(resid.norm() / denom) if float(denom) > 0 else float("inf")
@@ -357,6 +361,9 @@ def _read_cache(key):
         from safetensors import safe_open
         with safe_open(path, framework="pt") as f:
             meta = f.metadata() or {}
+            residual = float(meta.get("residual", "nan"))
+            if not math.isfinite(residual) or residual > 5e-3:
+                return None
             return (_detach_from_file(f.get_tensor("c")),
                     _detach_from_file(f.get_tensor("V")),
                     float(meta.get("residual", "nan")),
@@ -475,6 +482,6 @@ def get_basis(table, use_cache=True):
         if best is None or rel < best[2]:
             best = (c, basis_v, rel, label)
 
-    if best is not None and use_cache:
+    if best is not None and use_cache and math.isfinite(best[2]) and best[2] <= 5e-3:
         _write_cache(key, best[0], best[1], best[2], best[3])
     return best

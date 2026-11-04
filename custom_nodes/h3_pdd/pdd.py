@@ -534,6 +534,7 @@ def apply_pdd(model, primary_path, secondary_path=None,
         if bool(getattr(diffusion, "use_adaln_curves", False)):
             patched, adaln_report = _auto_port_curve_adaln(patched)
 
+        patched.model_options["transformer_options"][PDD_MARKER]["curve_adaln"] = adaln_report
         report = {
             "adapters": len(patches),
             "hybrid_adaln": hybrid_count,

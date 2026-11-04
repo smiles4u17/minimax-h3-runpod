@@ -21,7 +21,7 @@ import h3_acceleration
 from grok_enhancer import INSTRUCTIONS as GROK_DEFAULT_SYSTEM_PROMPT
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.21-prompt-book-upscaler"
+APP_VERSION = "web-v16.22-pdd-basis"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -2386,6 +2386,8 @@ def redact_for_ui(data: Any) -> Any:
 def explain_error_text(text: str) -> list[str]:
     t = text or ""
     hints: list[str] = []
+    if "pdd adaln factors" in t.lower() or "best basis fit" in t.lower():
+        hints.append("PDD stopped before sampling because its AdaLN compatibility fit failed. This is separate from the latent upscaler. A matching grid and a stable basis solve are required; do not loosen the residual limit or automatically retry the paid job.")
     if "read timed out" in t.lower() and "8188" in t:
         hints.append("ComfyUI on the worker was sampling and did not answer one status check within 30 seconds. The prompt was already accepted. Image 4f1bcca retries that check. An older worker stops the sample instead.")
     if "vhs failed to extract audio" in t.lower() or "error opening output file -" in t.lower():

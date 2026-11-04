@@ -143,3 +143,9 @@ respective authors. This independent ComfyUI integration is MIT-licensed.
 - [PlagueKind Nodes](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes)
   and ComfyUI's native MiniMax-H3 implementation for the surrounding H3
   integration work this project interoperates with.
+
+## Console worker numerical hardening
+
+The console worker solves the small AdaLN basis on CPU with FP64 SVD (`gelsd`), returns FP32 coefficients, and checks the residual reconstructed from those returned coefficients. It retains the existing 5e-3 rejection limit. The g4_svd64 cache namespace invalidates older QR fits, rejected fits are not persisted, and unsafe cached residuals are ignored.
+
+`H3PDDValidationOutput` is a diagnostic output node in the console worker's h3_runtime pack. Connect the PDD MODEL output to it to write a small setup receipt without sampling, decoding or generating a video. The receipt includes the number of ported AdaLN adapters and fit residual.
