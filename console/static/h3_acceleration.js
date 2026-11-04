@@ -32,7 +32,7 @@
     const task = prefix === 'pb' ? 'r2v' : val('h3_task');
     if (selected === 'sla4' && task === 'r2v') {
       set(prefix + '_acceleration_recipe', 'custom');
-      status.textContent = 'SLA weights are FL2V/T2V only. Use PDD or Sol for Ref2V.';
+      status.textContent = 'This four-step SLA LoRA preset is FL2V/T2V only. For Ref2V, choose SLA in Attention workflow.';
       return;
     }
     if (selected === 'custom') {
@@ -92,7 +92,7 @@
     const anchor = $(prefix + '_sampler');
     if (!anchor || $(prefix + '_acceleration_recipe')) return;
     const box = document.createElement('div'); box.className = 'card';
-    box.innerHTML = `<h4>Acceleration recipe</h4><label>Recipe<select id="${prefix}_acceleration_recipe"><option value="custom">Custom — keep current sampler/model</option><option value="pdd8">PDD — full head bank, Euler 8 steps</option><option value="sla4" ${prefix === 'pb' ? 'disabled' : ''}>SLA — paired FL2V weights, Euler 4 steps</option></select></label><p id="${prefix}_acceleration_status" class="hint" role="status">Presets apply only when selected. Sol is available in Attention workflow. VSA requires compatible FastH3 weights and is unavailable.</p>`;
+    box.innerHTML = `<h4>Acceleration recipe</h4><label>Recipe<select id="${prefix}_acceleration_recipe"><option value="custom">Custom — keep current sampler/model</option><option value="pdd8">PDD — full head bank, Euler 8 steps</option><option value="sla4" ${prefix === 'pb' ? 'disabled' : ''}>SLA — paired FL2V weights, Euler 4 steps</option></select></label><p id="${prefix}_acceleration_status" class="hint" role="status">Presets apply only when selected. Sol and SLA attention are available in Attention workflow. VSA requires compatible FastH3 weights and is unavailable.</p>`;
     anchor.closest('label').parentElement.after(box);
     set(prefix + '_acceleration_recipe', saved || 'custom');
     $(prefix + '_acceleration_recipe').onchange = () => void choose(prefix);

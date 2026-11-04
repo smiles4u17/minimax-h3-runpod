@@ -330,7 +330,7 @@ class SecurityAndH3Tests(unittest.TestCase):
         self.assertEqual(captured[0]["sparse_tau"], 1.1)
         self.assertNotIn("first_frame", captured[0])
         self.assertNotIn("references", captured[0])
-        data.update(attention="sla", sparse_trained_weights=False)
+        data.update(attention="vsa", sparse_trained_weights=False)
         response = self.client.post("/api/run/h3", json=data)
         self.assertEqual(response.status_code, 400)
 

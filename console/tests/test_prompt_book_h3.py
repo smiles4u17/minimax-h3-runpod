@@ -24,6 +24,23 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertTrue(request['latent_upscale'])
         self.assertTrue(request['rtx_upscale'])
 
+    def test_sla_ref2v_keeps_10eros_and_custom_sampling(self):
+        request, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {'workflow_id': 'ours', 'subject_id': 'ada', 'video_id': 'clip',
+             'attention': 'sla', 'attention_profile': 'sla', 'cache_enabled': False,
+             'ref2va_model': '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors',
+             'sampler': 'lcm', 'steps': 8, 'sparse_trained_weights': False},
+            catalog=self.catalog(), baked={'prompt': 'A subject in the scene.'})
+        from h3_attention_profiles import apply_profile, validate_attention
+        request = apply_profile(request)
+        validate_attention(request, (12, 0), True)
+        self.assertEqual(request['attention'], 'sla')
+        self.assertEqual(request['attention_profile'], 'sla')
+        self.assertEqual(request['ref2va_model'], '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors')
+        self.assertEqual(request['sampler'], 'lcm')
+        self.assertEqual(request['steps'], 8)
+        self.assertFalse(request['sparse_trained_weights'])
+
     def setUp(self):
         startup = mock.patch.object(media_console.OUTPUT_SYNC, "start")
         startup.start()
@@ -261,8 +278,11 @@ class PromptBookH3Tests(unittest.TestCase):
              "sampler": "res_multistep", "scheduler": "karras",
              "pass1_split": 14, "second_pass_sigma": 5, "latent_upscale": True,
              "ref2va_model": "selected-ref2v.safetensors", "seed_random": False,
+             "latent_upscale_model": "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
+             "latent_upscale_precision": "fp16",
              "seed": 42, "loras": [{"name": "book.safetensors", "strength": 0.7}],
              "h3_generation": {"task": "fl2v", "steps": 4, "sampler": "h3_turbo",
+                               "latent_upscale_model": "old.safetensors", "latent_upscale_precision": "bf16",
                                "scheduler": "simple", "turbo_enabled": True,
                                "turbo_lora": "turbo.safetensors", "seed": 99}},
             catalog=self.catalog(), baked={"prompt": "Book prompt"})
@@ -272,11 +292,10 @@ class PromptBookH3Tests(unittest.TestCase):
                          (20, "res_multistep", "karras"))
         self.assertEqual((request["pass1_split"], request["second_pass_sigma"]), (14, 5))
         self.assertEqual(request["ref2va_model"], "selected-ref2v.safetensors")
-             "latent_upscale_model": "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
-             "latent_upscale_precision": "fp16",
+        self.assertEqual(request["latent_upscale_model"], "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors")
+        self.assertEqual(request["latent_upscale_precision"], "fp16")
         self.assertEqual(request["seed"], 42)
         self.assertFalse(request["turbo_enabled"])
-                               "latent_upscale_model": "old.safetensors", "latent_upscale_precision": "bf16",
         self.assertNotIn("turbo_lora", request)
         self.assertEqual(request["loras"], [{"name": "book.safetensors", "strength": 0.7}])
 
@@ -286,8 +305,6 @@ class PromptBookH3Tests(unittest.TestCase):
                 {"subject_id": "ada", "video_id": "clip", "sampler": sampler},
                 catalog=self.catalog(), baked={"prompt": "Book prompt"})
             self.assertEqual(request["sampler"], sampler)
-        self.assertEqual(request["latent_upscale_model"], "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors")
-        self.assertEqual(request["latent_upscale_precision"], "fp16")
         for scheduler in sorted(prompt_book_h3.H3_SCHEDULERS):
             request, _ = prompt_book_h3.build_prompt_book_h3_request(
                 {"subject_id": "ada", "video_id": "clip", "scheduler": scheduler},
@@ -510,6 +527,8 @@ class PromptBookH3Tests(unittest.TestCase):
                 "h3_generation": generation,
                 "sampler": "res_multistep", "scheduler": "karras", "steps": 20,
                 "latent_upscale": True, "pass1_split": 14, "second_pass_sigma": 5,
+                "latent_upscale_model": "minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth",
+                "latent_upscale_precision": "fp32",
             })
         self.assertEqual(normal.status_code, 400, normal.text)
         self.assertIn("already accelerated", normal.text)
@@ -522,12 +541,10 @@ class PromptBookH3Tests(unittest.TestCase):
                          ("res_multistep", "karras", 20))
         self.assertEqual((payload["pass1_split"], payload["second_pass_sigma"]), (14, 5))
         self.assertTrue(payload["latent_upscale"])
+        self.assertEqual(payload["latent_upscale_model"], "minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth")
+        self.assertEqual(payload["latent_upscale_precision"], "fp32")
         self.assertNotIn("turbo_lora", payload)
 
 
 if __name__ == "__main__":
     unittest.main()
-                "latent_upscale_model": "minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth",
-                "latent_upscale_precision": "fp32",
-        self.assertEqual(payload["latent_upscale_model"], "minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth")
-        self.assertEqual(payload["latent_upscale_precision"], "fp32")

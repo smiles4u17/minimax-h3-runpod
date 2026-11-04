@@ -22,14 +22,8 @@
     const hint = document.getElementById(prefix + '_attention_profile_hint');
     hint.textContent = [card ? card.label + ': ' + card.encoder + ' encoder, Sage dense default.' : catalog.note,
                         profile?.evidence || '',
-                        prefix === 'pb' ? 'SLA is unavailable for Prompt Book Ref2V. VSA is unavailable until compatible weights are validated.' : ''].filter(Boolean).join(' ');
-    const sla = document.querySelector(`#${prefix}_attention_profile option[value="sla"]`);
-    if (sla) {
-      const settings = prefix === 'h3' ? h3Settings() : {};
-      sla.disabled = prefix !== 'h3' || !['fl2v', 't2v'].includes(settings.task)
-        || settings.fl2va_model !== catalog.profiles.sla.required_model
-        || !(settings.loras || []).some(l => String(l.name || '').split(/[\\/]/).pop() === catalog.profiles.sla.required_adapter);
-    }
+                        prefix === 'pb' ? 'SLA preserves the selected model and sampler. VSA is unavailable until compatible weights are validated.' : ''].filter(Boolean).join(' ');
+
   }
   function install(prefix, saved = 'custom') {
     const attention = document.getElementById(prefix + '_attention');
@@ -48,7 +42,7 @@
     // Profile controls arrive after Prompt Book binds its ordinary field listeners.
     const save = () => prefix === 'pb' ? window.pbSaveGeneration?.() : window.persistSettingsSoon?.();
     for (const item of Object.values(catalog.profiles)) {
-      if (item.attention && !item.disabled && item.attention !== 'sla'
+      if (item.attention && !item.disabled
           && !Array.from(attention.options).some(option => option.value === item.attention)) {
         const option = document.createElement('option');
         option.value = item.attention; option.textContent = item.label; attention.append(option);

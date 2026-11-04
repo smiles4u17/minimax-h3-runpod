@@ -495,8 +495,8 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     if attention in {"sla", "sol-attn", "vsa"}:
         if cache_enabled:
             raise InputError("Disable FirstBlockCache when using sparse attention")
-        if attention in {"sla", "vsa"} and not _payload_bool(payload.get("sparse_trained_weights")):
-            raise InputError("SLA/VSA requires matching trained model weights or LoRA; confirm sparse_trained_weights")
+        if attention == "vsa" and not _payload_bool(payload.get("sparse_trained_weights")):
+            raise InputError("VSA requires matching trained model weights; confirm sparse_trained_weights")
         keep = float(payload.get("sparse_keep_percent", 10.0))
         tau = float(payload.get("sparse_tau", 1.3))
         start = float(payload.get("sparse_start_percent", 0.2))

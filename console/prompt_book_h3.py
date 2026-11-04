@@ -519,8 +519,8 @@ def build_prompt_book_h3_request(
             raise ValueError("Remaining sigmas require a first-pass split below the step count")
     if attention in {"sol-attn", "sla", "vsa"} and cache_enabled:
         raise ValueError("Turn off FirstBlockCache when using Sol, SLA, or VSA")
-    if attention in {"sla", "vsa"} and not flag(data, "sparse_trained_weights", False):
-        raise ValueError("SLA and VSA need the trained-weights confirmation")
+    if attention == "vsa" and not flag(data, "sparse_trained_weights", False):
+        raise ValueError("VSA needs the trained-weights confirmation")
     aspect = str(data.get("aspect_ratio") or "").strip()
     if aspect not in ASPECT_VALUES:
         aspect = ""
@@ -653,6 +653,7 @@ def build_prompt_book_h3_request(
     explicit_generation = {key: request[key] for key in (
         "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
         "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
+        "latent_upscale_model", "latent_upscale_precision",
         "cache_enabled", "cache_threshold", "attention", "seed_random",
         "diagnostic_frames", "ref2va_model", "reference_resolution",
     ) if key in data}
@@ -667,7 +668,6 @@ def build_prompt_book_h3_request(
         loras = list(main_loras)
         def lora_key(item: dict[str, Any]) -> str:
             return str(item.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
-        "latent_upscale_model", "latent_upscale_precision",
         for extra in extra_loras:
             if not isinstance(extra, dict) or not str(extra.get("name") or "").strip():
                 raise ValueError("Prompt Book LoRAs need a name")

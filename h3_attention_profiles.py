@@ -16,9 +16,8 @@ PROFILES = {
              'evidence': 'SM89 and SM120 builds; GPU validation recorded separately'},
     'sol': {'label': 'Sol-Attn · training-free candidate', 'attention': 'sol-attn',
             'evidence': 'Native Comfy kernel; benchmark against dense for this workload'},
-    'sla': {'label': 'SLA · paired FL2V weights only', 'attention': 'sla',
-            'evidence': 'Requires the converted SLA adapter and standard FL2VA checkpoint',
-            'required_model': SLA_MODEL, 'required_adapter': SLA_ADAPTER},
+    'sla': {'label': 'SLA · top-k sparse attention', 'attention': 'sla',
+            'evidence': 'Available for FL2V and Ref2V, including 10Eros. Quality depends on sparsity and checkpoint; the four-step FL2V preset is separate.'},
     'vsa': {'label': 'VSA · unavailable (weights not validated)', 'attention': 'vsa',
             'evidence': 'No compatible native-worker VSA checkpoint has been validated', 'disabled': True},
 }
@@ -55,7 +54,8 @@ def validate_attention(data, capability=None, sparse_available=None):
         raise ValueError('This worker has no compiled Sol/SLA/VSA kernel; choose Auto or Sage')
     if mode == 'vsa':
         raise ValueError(PROFILES['vsa']['evidence'])
-    if mode == 'sla':
+    # Generic top-k attention is independent of the paired distilled recipe.
+    if mode == 'sla' and data.get('acceleration_recipe') == 'sla4':
         if str(data.get('task', '')).startswith(('r2v', 'ref2v')):
             raise ValueError('The registered SLA adapter supports FL2V/T2V, not Ref2V')
         model = data.get('model') or data.get('fl2va_model')

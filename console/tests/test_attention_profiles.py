@@ -12,12 +12,23 @@ class AttentionProfileTests(unittest.TestCase):
             self.assertEqual(result[field], source[field])
         self.assertEqual(len(catalog()['cards']), 3)
 
+    def test_generic_sla_preserves_ref2v_and_10eros_settings(self):
+        for model in ('minimax_h3_ref2va_pruned_int8_convrot.safetensors',
+                      '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors'):
+            source = {'attention_profile': 'sla', 'task': 'r2v', 'model': model,
+                      'sampler': 'lcm', 'steps': 8, 'loras': [], 'cache_enabled': True}
+            result = apply_profile(source)
+            validate_attention(result, (12, 0), True)
+            self.assertEqual(result['attention'], 'sla')
+            self.assertFalse(result['cache_enabled'])
+            for key in ('model', 'sampler', 'steps', 'loras'):
+                self.assertEqual(result[key], source[key])
+
     def test_missing_or_wrong_sparse_weights_never_pass_on_checkbox_alone(self):
-        with self.assertRaisesRegex(ValueError, 'paired'):
-            validate_attention({'attention': 'sla', 'sparse_trained_weights': True})
+        validate_attention({'attention': 'sla', 'sparse_trained_weights': False})
         with self.assertRaisesRegex(ValueError, 'VSA'):
             validate_attention({'attention': 'vsa', 'sparse_trained_weights': True})
-        valid = {'attention': 'sla', 'task': 'fl2v', 'model': SLA_MODEL,
+        valid = {'attention': 'sla', 'acceleration_recipe': 'sla4', 'task': 'fl2v', 'model': SLA_MODEL,
                  'loras': [{'name': 'H3/'+SLA_ADAPTER, 'strength': 1}], 'sparse_trained_weights': True,
                  'turbo_enabled': False, 'sampler': 'euler', 'scheduler': 'simple', 'steps': 4}
         validate_attention(valid, (8, 9), True)

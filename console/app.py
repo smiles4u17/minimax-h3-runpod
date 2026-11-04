@@ -21,7 +21,7 @@ import h3_acceleration
 from grok_enhancer import INSTRUCTIONS as GROK_DEFAULT_SYSTEM_PROMPT
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.22-pdd-basis"
+APP_VERSION = "web-v16.24-sla-ref2v"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -5064,8 +5064,8 @@ async def run_h3(data: dict[str, Any]):
     if payload["attention"] in {"sol-attn", "sla", "vsa"}:
         if cache_enabled:
             raise HTTPException(400, "Disable FirstBlockCache when using sparse attention")
-        if payload["attention"] in {"sla", "vsa"} and not payload["sparse_trained_weights"]:
-            raise HTTPException(400, "Select matching SLA/VSA trained weights and confirm the sparse weights control")
+        if payload["attention"] == "vsa" and not payload["sparse_trained_weights"]:
+            raise HTTPException(400, "Select matching VSA trained weights and confirm the sparse weights control")
         if not (0.5 <= payload["sparse_keep_percent"] <= 95 and 0 <= payload["sparse_tau"] <= 4
                 and 0 <= payload["sparse_start_percent"] <= payload["sparse_end_percent"] <= 1):
             raise HTTPException(400, "Invalid sparse attention settings")
@@ -5081,8 +5081,8 @@ async def run_h3(data: dict[str, Any]):
     if payload["attention"] in {"sol-attn", "sla", "vsa"}:
         if cache_enabled:
             raise HTTPException(400, "Disable FirstBlockCache when using sparse attention")
-        if payload["attention"] in {"sla", "vsa"} and not payload["sparse_trained_weights"]:
-            raise HTTPException(400, "Select matching SLA/VSA trained weights and confirm the sparse weights control")
+        if payload["attention"] == "vsa" and not payload["sparse_trained_weights"]:
+            raise HTTPException(400, "Select matching VSA trained weights and confirm the sparse weights control")
         if not (0.5 <= payload["sparse_keep_percent"] <= 95 and 0 <= payload["sparse_tau"] <= 4
                 and 0 <= payload["sparse_start_percent"] <= payload["sparse_end_percent"] <= 1):
             raise HTTPException(400, "Invalid sparse attention settings")

@@ -115,7 +115,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(any(n["class_type"] == "LoadImage" for n in graph.values()))
 
     def test_sparse_modes_route_sampler_and_scheduler_through_native_patch(self):
-        for mode in ("sol-attn",):
+        for mode in ("sol-attn", "sla"):
             graph, meta = handler.build_preset({"task": "t2v", "prompt": "robot", "attention": mode,
                 "sparse_trained_weights": True, "sparse_keep_percent": 15, "cache_enabled": False})
             self.assertEqual(graph["9160"]["inputs"]["selection"], mode)
@@ -124,11 +124,25 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(graph["9160"]["inputs"]["sink_conditioning"], "exact_kv_and_rows")
             self.assertNotIn("145", graph)
             self.assertEqual(meta["attention"], mode)
-        for changes in ({"sparse_trained_weights": False}, {"cache_enabled": True}, {"sparse_keep_percent": 0},
+        for changes in ({"cache_enabled": True}, {"sparse_keep_percent": 0},
                         {"sparse_start_percent": 0.9, "sparse_end_percent": 0.2}):
             with self.assertRaises(handler.InputError):
                 handler.build_preset(dict({"task": "t2v", "prompt": "robot", "attention": "sla",
                     "sparse_trained_weights": True}, **changes))
+
+    def test_ref2v_10eros_sla_keeps_model_and_sampler(self):
+        with (mock.patch.object(handler, '_materialize_asset', return_value='reference.png'),
+              mock.patch.object(handler, '_model_exists', return_value=True)):
+            graph, meta = handler.build_preset({'task': 'r2v', 'prompt': 'robot',
+                'references': [asset('reference.png')], 'attention': 'sla', 'sparse_trained_weights': False, 'cache_enabled': False,
+                'model': '10Eros_Max_h3_TURBO-hybrid_beta5_int8.safetensors',
+                'turbo_enabled': False, 'sampler': 'lcm', 'scheduler': 'simple', 'steps': 8})
+        self.assertEqual(graph['9160']['inputs']['selection'], 'sla')
+        self.assertEqual(meta['attention'], 'sla')
+        self.assertTrue(any('10Eros' in str(node.get('inputs', {}).get('unet_name', ''))
+                            for node in graph.values()))
+        self.assertTrue(any(node.get('inputs', {}).get('sampler_name') == 'lcm'
+                            for node in graph.values()))
 
     def test_pdd_rejects_ordinary_trunk_lora_without_recipe(self):
         with self.assertRaisesRegex(handler.InputError, 'recipe'):
