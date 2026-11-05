@@ -785,7 +785,7 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
         payload = apply_attention_profile(payload)
     except ValueError as exc:
         raise InputError(str(exc)) from exc
-    from h3_workflow_options import workflow_options, variant_defaults
+    from h3_workflow_options import workflow_options, variant_defaults, validate_reference_photos
     from workflow_variants import apply_variant
     try:
         options = workflow_options(payload)
@@ -800,6 +800,8 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
             raise InputError('Workflow selection does not match task')
         payload['task'] = expected
         photos = payload.get('photos', [])
+        if expected == 'r2v' and not options['use_multi_image']:
+            validate_reference_photos(photos)
         if photos:
             if expected == 'fl2v':
                 payload['first_frame'] = next((p for p in photos if p), None) if options['use_multi_image'] else photos[0]

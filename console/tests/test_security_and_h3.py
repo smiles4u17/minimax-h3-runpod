@@ -162,6 +162,28 @@ class SecurityAndH3Tests(unittest.TestCase):
             response=self.client.post('/api/run/h3',json=bad)
             self.assertEqual(response.status_code,400,response.text);upload.assert_not_called();submit.assert_not_called()
 
+    def test_ref2v_accepts_nine_photos_and_rejects_ten_before_upload(self):
+        data = {'settings': {'runpod_api_key': 'key', 'h3_endpoint_id': 'test'},
+                'workflow_variant': 'ref2v_20260920', 'task': 'r2v',
+                'prompt': 'Nine views of a toy robot', 'steps': 8, 'sampler': 'euler',
+                'photo_paths': [f'robot-{i}.png' for i in range(9)],
+                'use_multi_image': False, 'turbo_enabled': False}
+        with (mock.patch.object(media_console, 'configured_s3_helper', return_value=object()),
+              mock.patch.object(media_console, 'h3_asset_payload', side_effect=lambda path,*a: {'name': path}) as upload,
+              mock.patch.object(media_console, 'record_job_event'),
+              mock.patch.object(media_console, 'submit') as submit):
+            response = self.client.post('/api/payload/preview/h3', json=data)
+            self.assertEqual(response.status_code, 200, response.text)
+            photos = response.json()['payload']['photos']
+            self.assertEqual([p['name'] for p in photos], data['photo_paths'])
+            self.assertEqual(upload.call_count, 9)
+            self.assertNotIn('references', response.json()['payload'])
+            upload.reset_mock()
+            response = self.client.post('/api/payload/preview/h3', json={**data, 'photo_paths': data['photo_paths']+['tenth.png']})
+            self.assertEqual(response.status_code, 400, response.text)
+            upload.assert_not_called()
+            submit.assert_not_called()
+
     def test_pdd_basis_failure_explains_the_stage(self):
         hints = media_console.explain_error_text("The PDD AdaLN factors could not be rebased. best basis fit is 9.57e-02")
         self.assertTrue(any("before sampling" in hint for hint in hints))

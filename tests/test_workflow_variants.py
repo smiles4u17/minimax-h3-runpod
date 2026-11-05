@@ -51,6 +51,26 @@ class VariantTests(unittest.TestCase):
         with mock.patch.object(handler,'_materialize_asset',return_value='fixture.png'):
             return handler.build_preset(data)
 
+    def test_ref2v_nine_references_reach_both_passes(self):
+        photos = [asset(f'view-{i}.png') for i in range(9)]
+        graph, meta = self.build('ref2v_20260920', photos=photos, keyframe_positions=[],
+                                 latent_upscale=True, turbo_enabled=False)
+        for i in range(9):
+            source = graph['136']['inputs'][f'ref_images.ref_image_{i}']
+            self.assertEqual(graph[source[0]]['class_type'], 'LoadImage')
+        self.assertEqual(len([key for key in graph['136']['inputs'] if key.startswith('ref_images.')]), 9)
+        self.assertTrue(meta['reference_encoding_reused'])
+        self.assertEqual(graph['9306']['inputs']['conditioning'], ['136', 0])
+        with self.assertRaisesRegex((ValueError, handler.InputError), 'nine'):
+            self.build('ref2v_20260920', photos=photos+[None])
+        with self.assertRaisesRegex(ValueError, 'four'):
+            self.build('fflf_20260920', photos=photos)
+
+    def test_ref2v_empty_slots_keep_filled_reference_order(self):
+        graph, _ = self.build('ref2v_20260920', photos=[None, asset('second.png')]+[None]*6+[asset('ninth.png')], keyframe_positions=[])
+        refs = [key for key in graph['136']['inputs'] if key.startswith('ref_images.')]
+        self.assertEqual(refs, ['ref_images.ref_image_0', 'ref_images.ref_image_1'])
+
     def test_upscaler_precision_reaches_graph(self):
         for variant in ('fflf_20260920', 'ref2v_20260920'):
             for precision in ('bf16', 'fp16', 'fp32'):

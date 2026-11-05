@@ -36,9 +36,9 @@ function bindH3PhotoDrop(card,upload){
     </fieldset>`;
   models.querySelector('.h3SectionBody').prepend(panel);
   const photos=document.createElement('div');photos.id='h3_variant_photos';photos.className='hidden';
-  photos.innerHTML='<h3>Workflow photos</h3><p class="hint">Leave unused photo slots and their percentages empty. Photos 3 and 4 in FFLF require Use Multi IMG. Ref2V keeps the video/audio references below.</p><div class="fields">'+Array.from({length:4},(_,i)=>`<div class="variantPhoto"><label>Photo ${i+1}<input id="h3_photo${i+1}" placeholder="Local image path"></label><button type="button" data-photo="${i+1}">Choose image</button><input type="file" id="h3_photo_file${i+1}" accept="image/*" hidden><label>Keyframe percentage<input id="h3_keyframe${i+1}" placeholder="${i===0?'0%':i===1?'100%':'Leave empty if unused'}"></label></div>`).join('')+'</div>';
+  photos.innerHTML='<h3>Workflow photos · Ref2V up to 9</h3><p class="hint">Leave unused photo slots and their percentages empty. Photos 3 and 4 in FFLF require Use Multi IMG. Leave Use Multi IMG off for nine Ref2V references. Ref2V supports up to 9 independent reference images, alongside the video/audio references below. Prompt tags follow the filled images in order: &lt;Picture 1&gt; through &lt;Picture 9&gt;.</p><div class="fields">'+Array.from({length:9},(_,i)=>`<div class="variantPhoto"><label>Photo ${i+1}<input id="h3_photo${i+1}" placeholder="Local image path"></label><button type="button" data-photo="${i+1}">Choose image</button><input type="file" id="h3_photo_file${i+1}" accept="image/*" hidden><label>Keyframe percentage<input id="h3_keyframe${i+1}" placeholder="${i===0?'0%':i===1?'100%':'Leave empty if unused'}"></label></div>`).join('')+'</div>';
   $('h3_task').closest('.cardTitleRow').after(photos);
-  for(let i=1;i<=4;i++){
+  for(let i=1;i<=9;i++){
     const path=$('h3_photo'+i),card=path.closest('.variantPhoto'),picker=$('h3_photo_file'+i);
     const preview=document.createElement('img');preview.className='variantPhotoPreview hidden';preview.alt='Photo '+i;preview.draggable=false;card.appendChild(preview);
     const refresh=async()=>{const saved=path.value.trim();preview.classList.toggle('hidden',!saved);if(!saved){preview.removeAttribute('src');return}try{const url=await previewUrlForPath(saved);if(path.value.trim()===saved)preview.src=url}catch(e){log('Photo preview: '+e.message)}};
@@ -57,6 +57,11 @@ function bindH3PhotoDrop(card,upload){
   function sync(change=false){
     const active=isNew(),fflf=variant().startsWith('fflf');
     photos.classList.toggle('hidden',!active);
+    const independentRefs = !fflf && !chk('h3_use_multi_image');
+    for(let i=1;i<=9;i++){
+      $('h3_photo'+i).closest('.variantPhoto').classList.toggle('hidden',i>4&&!independentRefs);
+      $('h3_keyframe'+i).closest('label').classList.toggle('hidden',independentRefs);
+    }
     updateH3TaskUI();
     $('h3_reference_grid').classList.toggle('hidden',active);
     for(const el of [$('h3_reference_grid').previousElementSibling,$('h3_reference_grid').previousElementSibling.previousElementSibling,document.querySelector('.h3SubjectBookBar')])el?.classList.toggle('hidden',active);
@@ -79,7 +84,7 @@ function bindH3PhotoDrop(card,upload){
   }
   $('h3_task').addEventListener('change',()=>{sync(true);persistSettingsSoon()});
   $('h3_use_larry').onchange=()=>{selectH3TurboFamily(chk('h3_use_larry')?'larry':'lightx2v');sync();persistSettingsSoon()};
-  for(const id of ['h3_no_turbo','h3_latent_upscale','h3_rtx_upscale'])$(id).onchange=()=>{sync();persistSettingsSoon()};
+  for(const id of ['h3_no_turbo','h3_latent_upscale','h3_rtx_upscale','h3_use_multi_image'])$(id).onchange=()=>{sync();persistSettingsSoon()};
   $('h3_second_pass_sigma').onchange=()=>{sync();persistSettingsSoon()};
   $('h3_pass1_split').onchange=()=>{set('h3_second_pass_sigma','4');sync();persistSettingsSoon()};
   $('h3_reference_resolution').onchange=()=>persistSettingsSoon();
@@ -99,7 +104,7 @@ function bindH3PhotoDrop(card,upload){
   panel.querySelector('fieldset').remove();panel.querySelector('h3').remove();
   generationBody.querySelector(':scope > h3').textContent='Runtime & advanced';
   const original=h3Settings;
-  window.h3Settings=()=>{const legacy=original();const settings={...legacy,legacy_inputs:{first_frame_path:legacy.first_frame_path,last_frame_path:legacy.last_frame_path,reference_paths:legacy.reference_paths,reference_subjects:legacy.reference_subjects},workflow_variant:variant(),use_multi_image:chk('h3_use_multi_image'),use_larry:chk('h3_use_larry'),latent_upscale:chk('h3_latent_upscale'),rtx_upscale:chk('h3_rtx_upscale'),final_megapixels:Number(val('h3_final_megapixels')),pass1_split:Number(val('h3_pass1_split')),second_pass_sigma:Number(val('h3_second_pass_sigma')),latent_upscale_model:val('h3_latent_upscale_model'),latent_upscale_precision:val('h3_latent_upscale_precision')||'bf16',photo_paths:[1,2,3,4].map(i=>val('h3_photo'+i).trim()),keyframe_positions:[1,2,3,4].map(i=>val('h3_keyframe'+i).trim())};
+  window.h3Settings=()=>{const legacy=original();const settings={...legacy,legacy_inputs:{first_frame_path:legacy.first_frame_path,last_frame_path:legacy.last_frame_path,reference_paths:legacy.reference_paths,reference_subjects:legacy.reference_subjects},workflow_variant:variant(),use_multi_image:chk('h3_use_multi_image'),use_larry:chk('h3_use_larry'),latent_upscale:chk('h3_latent_upscale'),rtx_upscale:chk('h3_rtx_upscale'),final_megapixels:Number(val('h3_final_megapixels')),pass1_split:Number(val('h3_pass1_split')),second_pass_sigma:Number(val('h3_second_pass_sigma')),latent_upscale_model:val('h3_latent_upscale_model'),latent_upscale_precision:val('h3_latent_upscale_precision')||'bf16',photo_paths:Array.from({length:variant()==='ref2v_20260920'&&!chk('h3_use_multi_image')?9:4},(_,i)=>val('h3_photo'+(i+1)).trim()),keyframe_positions:Array.from({length:4},(_,i)=>val('h3_keyframe'+(i+1)).trim())};
     if(isNew()){settings.task=settings.workflow_variant==='fflf_20260920'?'fl2v':'r2v';settings.first_frame_path=settings.use_multi_image?settings.photo_paths.find(Boolean)||'':settings.photo_paths[0];settings.last_frame_path=settings.photo_paths[1];settings.reference_paths=settings.photo_paths.filter(Boolean);settings.turbo_enabled=!chk('h3_no_turbo');settings.sampling_preset='custom';settings.pdd_enabled=false;settings.turbo_family=settings.use_larry?'larry':'lightx2v';if(!settings.turbo_enabled&&settings.second_pass_sigma!==4)settings.pass1_split=settings.steps}
     settings.reference_resolution=val('h3_reference_resolution')||'generation';
     settings.diagnostic_frames=chk('h3_diagnostic_frames');
@@ -116,7 +121,7 @@ function bindH3PhotoDrop(card,upload){
     for(const [name,defaultValue] of Object.entries({use_multi_image:false,use_larry:(h3.turbo_family==='larry'||(!h3.turbo_family&&h3.sampler==='h3_turbo')),latent_upscale:true,rtx_upscale:true}))setChk('h3_'+name,h3[name]??defaultValue);
     for(const [name,defaultValue] of Object.entries({final_megapixels:1,pass1_split:Math.min(val('h3_task')==='r2v'?6:3,Math.max(1,Number(h3.steps??6)-1)),second_pass_sigma:2,latent_upscale_precision:'bf16',latent_upscale_model:'minimax_h3_latent_upscaler_3d_bf16.safetensors'}))set('h3_'+name,h3[name]??defaultValue);
     const paths=h3.photo_paths||(h3.task==='r2v'?h3.reference_paths:[h3.first_frame_path,h3.last_frame_path])||[];
-    for(let i=1;i<=4;i++){set('h3_photo'+i,paths[i-1]||'');set('h3_keyframe'+i,(h3.keyframe_positions||[])[i-1]||'');void $('h3_photo'+i).refreshPreview()}
+    for(let i=1;i<=9;i++){set('h3_photo'+i,paths[i-1]||'');set('h3_keyframe'+i,(h3.keyframe_positions||[])[i-1]||'');void $('h3_photo'+i).refreshPreview()}
     sync();
   };
   window.addEventListener('console-ready',()=>{applyH3Settings(SETTINGS.h3||{},SETTINGS.h3_storage||{});sync()},{once:true});

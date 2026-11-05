@@ -15,13 +15,13 @@ from output_sync import OutputSync
 from generation_log import SubmissionLog
 from job_list import sent_requests, merge_live_requests, sorted_requests
 from h3_attention_profiles import apply_profile as apply_attention_profile, validate_attention, catalog as attention_profile_catalog
-from h3_workflow_options import workflow_options, validate_keyframes, variant_defaults, reference_frame_cap
+from h3_workflow_options import workflow_options, validate_keyframes, validate_reference_photos, variant_defaults, reference_frame_cap
 import prompt_book_h3
 import h3_acceleration
 from grok_enhancer import INSTRUCTIONS as GROK_DEFAULT_SYSTEM_PROMPT
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.24-sla-ref2v"
+APP_VERSION = "web-v16.25-nine-ref-images"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -4904,7 +4904,9 @@ async def run_h3(data: dict[str, Any]):
                 raise ValueError('Photo paths must be a list of strings; use empty strings for unused slots')
             if variant_options['use_multi_image'] and (data.get('reference_video_paths') or data.get('reference_audio_paths') or data.get('audio_path')):
                 raise ValueError('Percentage keyframes cannot be combined with video/audio references; disable Use Multi IMG')
-            positions = validate_keyframes(photo_paths, data.get('keyframe_positions', []), variant_options['use_multi_image'])
+            positions = (validate_reference_photos(photo_paths)
+                         if variant_options['workflow_variant'] == 'ref2v_20260920' and not variant_options['use_multi_image']
+                         else validate_keyframes(photo_paths, data.get('keyframe_positions', []), variant_options['use_multi_image']))
             data['task'] = 'fl2v' if variant_options['workflow_variant'].startswith('fflf') else 'r2v'
             if data['task'] == 'fl2v':
                 if not photo_paths or (not photo_paths[0] and not (variant_options['use_multi_image'] and any(photo_paths))):

@@ -57,6 +57,13 @@ def workflow_options(data):
     return result
 
 
+def validate_reference_photos(images):
+    """Ref2V accepts up to nine independent images, without keyframe positions."""
+    if not isinstance(images, list) or len(images) > 9:
+        raise ValueError("Ref2V supports up to nine reference image slots")
+    return [''] * len(images)
+
+
 def validate_keyframes(images, positions, enabled):
     if not isinstance(images, list) or len(images) > 4:
         raise ValueError("Use up to four photo slots")

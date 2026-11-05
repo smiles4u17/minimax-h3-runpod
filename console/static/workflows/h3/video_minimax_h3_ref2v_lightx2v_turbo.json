@@ -465,7 +465,7 @@
       ],
       "size": [
         410,
-        530
+        660
       ],
       "flags": {},
       "order": 19,
@@ -510,6 +510,41 @@
         {
           "label": "ref_image_3",
           "name": "ref_images.ref_image_3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_image_4",
+          "name": "ref_images.ref_image_4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_image_5",
+          "name": "ref_images.ref_image_5",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_image_6",
+          "name": "ref_images.ref_image_6",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_image_7",
+          "name": "ref_images.ref_image_7",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_image_8",
+          "name": "ref_images.ref_image_8",
           "shape": 7,
           "type": "IMAGE",
           "link": null
@@ -1232,7 +1267,7 @@
       131,
       1,
       136,
-      13,
+      18,
       "INT"
     ],
     [
@@ -1240,7 +1275,7 @@
       115,
       0,
       136,
-      11,
+      16,
       "INT"
     ],
     [
@@ -1248,7 +1283,7 @@
       115,
       1,
       136,
-      12,
+      17,
       "INT"
     ],
     [
@@ -1264,7 +1299,7 @@
       138,
       0,
       136,
-      10,
+      15,
       "STRING"
     ],
     [

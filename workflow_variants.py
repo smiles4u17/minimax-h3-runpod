@@ -3,7 +3,7 @@ Editor Set/Get, bypassers and switches are resolved here, not sent to ComfyUI.
 """
 import copy
 import re
-from h3_workflow_options import workflow_options, validate_keyframes
+from h3_workflow_options import workflow_options, validate_keyframes, validate_reference_photos
 
 SIGMAS = {1: "0.9035, 0.6316, 0.3158, 0.0000",
           2: "0.9035, 0.8000, 0.6316, 0.3158, 0.0000",
@@ -23,7 +23,8 @@ def apply_variant(graph, payload, materialize, model_name):
         return options
     multi = options['use_multi_image']
     photos = payload.get('photos', [])
-    positions = validate_keyframes(photos, payload.get('keyframe_positions', []), multi)
+    positions = (validate_reference_photos(photos) if payload['task'] == 'r2v' and not multi
+                 else validate_keyframes(photos, payload.get('keyframe_positions', []), multi))
     conditioning = '182' if payload['task'] == 'fl2v' else '136'
     def add(n, kind, **inputs):
         graph[n] = {'class_type': kind, 'inputs': inputs}
