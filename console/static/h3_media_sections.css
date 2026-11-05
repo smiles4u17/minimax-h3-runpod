@@ -1,0 +1,4 @@
+.h3MediaSection{margin:12px 0;border:1px solid #2a4057;border-radius:8px;padding:12px;min-width:0}
+.h3MediaSection>summary{cursor:pointer;font-weight:700;color:#c9e3ff;user-select:none}
+.h3MediaSection[open]>summary{margin-bottom:12px}
+.h3MediaSection>summary:focus-visible{outline:2px solid #60a5fa;outline-offset:4px}

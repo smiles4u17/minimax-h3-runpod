@@ -35,8 +35,8 @@ function bindH3PhotoDrop(card,upload){
     <label>Latent inference precision<select id="h3_latent_upscale_precision"><option value="bf16">BF16 (default)</option><option value="fp16">FP16</option><option value="fp32">FP32 (more memory)</option></select></label>
     </fieldset>`;
   models.querySelector('.h3SectionBody').prepend(panel);
-  const photos=document.createElement('div');photos.id='h3_variant_photos';photos.className='hidden';
-  photos.innerHTML='<h3>Workflow photos · Ref2V up to 9</h3><p class="hint">Leave unused photo slots and their percentages empty. Photos 3 and 4 in FFLF require Use Multi IMG. Leave Use Multi IMG off for nine Ref2V references. Ref2V supports up to 9 independent reference images, alongside the video/audio references below. Prompt tags follow the filled images in order: &lt;Picture 1&gt; through &lt;Picture 9&gt;.</p><div class="fields">'+Array.from({length:9},(_,i)=>`<div class="variantPhoto"><label>Photo ${i+1}<input id="h3_photo${i+1}" placeholder="Local image path"></label><button type="button" data-photo="${i+1}">Choose image</button><input type="file" id="h3_photo_file${i+1}" accept="image/*" hidden><label>Keyframe percentage<input id="h3_keyframe${i+1}" placeholder="${i===0?'0%':i===1?'100%':'Leave empty if unused'}"></label></div>`).join('')+'</div>';
+  const photos=document.createElement('details');photos.id='h3_variant_photos';photos.className='hidden h3MediaSection';photos.open=true;
+  photos.innerHTML='<summary>Photo references <span class="h3Limit">Ref2V up to 9</span></summary><p class="hint">Leave unused photo slots and their percentages empty. Photos 3 and 4 in FFLF require Use Multi IMG. Leave Use Multi IMG off for nine Ref2V references. Ref2V supports up to 9 independent reference images, alongside the video/audio references below. Prompt tags follow the filled images in order: &lt;Picture 1&gt; through &lt;Picture 9&gt;.</p><div class="fields">'+Array.from({length:9},(_,i)=>`<div class="variantPhoto"><label>Photo ${i+1}<input id="h3_photo${i+1}" placeholder="Local image path"></label><button type="button" data-photo="${i+1}">Choose image</button><input type="file" id="h3_photo_file${i+1}" accept="image/*" hidden><label>Keyframe percentage<input id="h3_keyframe${i+1}" placeholder="${i===0?'0%':i===1?'100%':'Leave empty if unused'}"></label></div>`).join('')+'</div>';
   $('h3_task').closest('.cardTitleRow').after(photos);
   for(let i=1;i<=9;i++){
     const path=$('h3_photo'+i),card=path.closest('.variantPhoto'),picker=$('h3_photo_file'+i);
@@ -100,7 +100,7 @@ function bindH3PhotoDrop(card,upload){
   group('Latent model',['h3_latent_upscale_model','h3_latent_upscale_precision']);
   $('h3_latent_upscale_model').onchange=()=>{const match=val('h3_latent_upscale_model').match(/_(bf16|fp16|fp32)\.(?:safetensors|pth)$/);if(match)set('h3_latent_upscale_precision',match[1]);persistSettingsSoon()};
   $('h3_latent_upscale_precision').onchange=()=>persistSettingsSoon();
-  photos.querySelector('h3').after($('h3_use_multi_image').closest('label'));
+  photos.querySelector('summary').after($('h3_use_multi_image').closest('label'));
   panel.querySelector('fieldset').remove();panel.querySelector('h3').remove();
   generationBody.querySelector(':scope > h3').textContent='Runtime & advanced';
   const original=h3Settings;

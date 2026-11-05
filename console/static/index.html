@@ -6,6 +6,7 @@
 <title>RunPod Media Console Web</title>
 <link rel="stylesheet" href="/static/styles.css?v=16.18.1" />
 <link rel="stylesheet" href="/static/workspace.css?v=16.09" />
+<link rel="stylesheet" href="/static/h3_media_sections.css?v=16.26" />
 </head>
 <body>
 <header>
@@ -154,13 +155,15 @@
         <h4>Image references <span class="h3Limit">up to 9</span></h4>
         <p class="hint">Picture labels are assigned automatically in the order the non-empty references are sent. Turn on “Use as Subject” only when an image represents reusable content rather than a concrete frame anchor.</p>
         <div id="h3_reference_grid" class="h3ReferenceGrid"></div>
-        <h4>Video references <span class="h3Limit">up to 3</span></h4>
+        <details id="h3_reference_videos_section" class="h3MediaSection" open><summary>Video references <span class="h3Limit">up to 3</span></summary>
         <p class="hint">Video labels are assigned automatically. Each video can also contribute its embedded soundtrack as the matching video-audio reference.</p>
         <div id="h3_reference_video_grid" class="h3ReferenceGrid"></div>
-        <h4>Audio references <span class="h3Limit">up to 3</span></h4>
+        </details>
+        <details id="h3_reference_audio_section" class="h3MediaSection" open><summary>Audio references <span class="h3Limit">up to 3</span></summary>
         <p class="hint">Standalone clips are labeled <code>&lt;Audio 1&gt;</code>, <code>&lt;Audio 2&gt;</code>, and so on in the order supplied.</p>
         <div id="h3_reference_audio_grid" class="h3ReferenceGrid"></div>
         <label title="Route the first supplied standalone audio reference into the generated video's output audio."><input id="h3_use_reference_audio" type="checkbox"> Use first standalone audio reference as output</label>
+        </details>
       </div>
     </div>
   </details>
@@ -597,7 +600,8 @@
 <script src="/static/h3_attention_profiles.js?v=16.24"></script>
 <script src="/static/dashboard.js?v=15.89"></script>
 <script src="/static/h3_job.js?v=16.01"></script>
-<script src="/static/h3_variants.js?v=16.25"></script>
+<script src="/static/h3_variants.js?v=16.26"></script>
+<script src="/static/h3_media_sections.js?v=16.26"></script>
 <script src="/static/workspace.js?v=16.15"></script>
 <script src="/static/monitor_jobs.js?v=16.14"></script>
 <script>for(const id of ['h3_fl2va_model','h3_ref2va_model','h3_megapixels','h3_attention'])document.getElementById(id)?.addEventListener('change',updateH3QualityNotice);</script>
