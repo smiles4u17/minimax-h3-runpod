@@ -10,9 +10,11 @@ from huggingface_hub import hf_hub_download
 
 ROOT = Path(os.environ.get("COMFY_ROOT", "/comfyui")) / "models"
 
-ASSET_REVISIONS = {"sla-fl2v": "b4cd41131be06909110464ec1be3b30aa6068e8e", "pdd-fl2v": "335001fb9e5455d68a0caa18ec2e319072150328", "pdd-r2v": "335001fb9e5455d68a0caa18ec2e319072150328"}
+ASSET_REVISIONS = {"sol-vae-int8": "54472221d27c695fca9621b0c3ed52f06c4af707", "sol-vae-fp16": "54472221d27c695fca9621b0c3ed52f06c4af707", "sla-fl2v": "b4cd41131be06909110464ec1be3b30aa6068e8e", "pdd-fl2v": "335001fb9e5455d68a0caa18ec2e319072150328", "pdd-r2v": "335001fb9e5455d68a0caa18ec2e319072150328"}
 
 ASSETS = {
+    "sol-vae-int8": ("Comfy-Org/MiniMax-H3", "vae/minimax_h3_sol_vae_int8_convrot.safetensors", "vae"),
+    "sol-vae-fp16": ("Comfy-Org/MiniMax-H3", "vae/minimax_h3_sol_vae_fp16.safetensors", "vae"),
     "sla-fl2v": ("lightx2v/Minimax-h3-Turbo-SLA", "minimax_h3_fl2v_turbo_4step_v0.1_768p_sla_comfyui_bf16.safetensors", "loras/H3"),
     "pdd-fl2v": ("alibaba-pai/MiniMax-H3-Acc-LoRAs", "MiniMax-H3-FL2VA-Acc-8Step.safetensors", "loras/H3"),
     "pdd-r2v": ("alibaba-pai/MiniMax-H3-Acc-LoRAs", "MiniMax-H3-Ref2VA-Acc-8Step.safetensors", "loras/H3"),

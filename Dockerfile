@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 ARG WORKER_BASE=runpod/comfyui:1.4.7-cuda13.0
 ARG SAGEATTENTION_WHEEL_URL=https://huggingface.co/harryming/sageattention-blackwell-wheels/resolve/main/wheels/torch2.10.0-cu130-cp312-blackwell/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
 ARG SAGEATTENTION_WHEEL_SHA256=b6a1c65287a1e7d802c98bf1b7267446823a15dc160b4beed3046d118bc45570
@@ -144,7 +142,7 @@ RUN --mount=type=secret,id=hf_token,required=false \
     python3.12 /opt/minimax-h3/scripts/download_models.py --asset r2v
 RUN --mount=type=secret,id=hf_token,required=false \
     export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
-    python3.12 /opt/minimax-h3/scripts/download_models.py --asset video-vae --asset audio-vae
+    python3.12 /opt/minimax-h3/scripts/download_models.py --asset video-vae --asset audio-vae --asset sol-vae-int8 --asset sol-vae-fp16
 RUN --mount=type=secret,id=hf_token,required=false \
     export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
     python3.12 /opt/minimax-h3/scripts/download_models.py --asset turbo
