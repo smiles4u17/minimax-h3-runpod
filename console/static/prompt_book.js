@@ -2,7 +2,7 @@ let PB = {catalog: null, subject: '', subjectB: '', video: '', family: '', subje
 const PB_ASPECTS = [[1, 1, '1:1 (Square)'], [2, 3, '2:3 (Portrait Photo)'], [3, 2, '3:2 (Photo)'], [3, 4, '3:4 (Portrait Standard)'], [4, 3, '4:3 (Standard)'], [9, 16, '9:16 (Portrait Widescreen)'], [16, 9, '16:9 (Widescreen)'], [21, 9, '21:9 (Ultrawide)']];
 const PB_GENERATION_STORE = 'prompt-book-h3-generation-v1';
 const PB_DEFAULT_MODEL = '10Eros_Max_h3_TURBO-hybrid_beta5.safetensors';
-const PB_GENERATION_FIELDS = ['aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'latent_upscale_model', 'latent_upscale_precision', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'attention_profile', 'cache_enabled', 'cache_threshold', 'reference_resolution', 'acceleration_recipe'];
+const PB_GENERATION_FIELDS = ['context_windows', 'video_decoder', 'aspect_ratio', 'model', 'sampler', 'scheduler', 'steps', 'pass1_split', 'second_pass_sigma', 'megapixels', 'latent_upscale', 'latent_upscale_model', 'latent_upscale_precision', 'final_megapixels', 'rtx_upscale', 'diagnostic_frames', 'seed_random', 'seed', 'attention', 'attention_profile', 'cache_enabled', 'cache_threshold', 'reference_resolution', 'acceleration_recipe'];
 
 function pbEsc(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -514,6 +514,8 @@ function pbGenerationSettings() {
   if (!scheduler) throw new Error('Choose a scheduler for Prompt Book.');
   const random = pbChecked('pb_seed_random');
   return {
+    context_windows: pbChecked('pb_context_windows'),
+    video_decoder: val('pb_video_decoder') || 'sol_int8',
     ref2va_model: val('pb_model').trim() || PB_DEFAULT_MODEL,
     steps, sampler, scheduler, pass1_split: split, second_pass_sigma: second,
     megapixels: pbGenerationNumber('pb_megapixels', 'First-pass size', 0.2, 2),

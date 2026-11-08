@@ -6,6 +6,46 @@ import test_handler
 from h3_workflow_options import validate_keyframes
 
 class VariantTests(unittest.TestCase):
+    def test_legacy_workflows_use_context_and_sol(self):
+        for task in ('t2v', 'fl2v', 'r2v'):
+            graph, meta = handler.build_preset({'task': task, 'prompt': 'A toy robot',
+                'context_windows': True, 'references': [asset('robot.png')],
+                'first_frame': asset('robot.png')})
+            self.assertEqual(graph['126']['inputs']['model'], ['9180', 0])
+            self.assertEqual(graph['122']['inputs']['vae'], ['9181', 0])
+            self.assertTrue(meta['context_windows'])
+
+    def test_sol_decode_and_context_reach_both_passes(self):
+        for variant in ('fflf_20260920', 'ref2v_20260920'):
+            for attention in ('sage', 'native', 'sla', 'sol-attn'):
+                graph, meta = self.build(variant, context_windows=True, attention=attention,
+                                        latent_upscale=True, diagnostic_frames=True)
+                self.assertEqual(graph['126']['inputs']['model'], ['9180', 0])
+                self.assertEqual(graph['9306']['inputs']['model'], ['9180', 0])
+                self.assertEqual(graph['9180']['inputs']['context_length'], 124)
+                self.assertEqual(graph['9180']['inputs']['context_overlap'], 39)
+                self.assertEqual(graph['9180']['inputs']['model'],
+                                 ['9160', 0] if attention in ('sla', 'sol-attn') else
+                                 ['145', 0] if attention == 'sage' else ['9162', 0])
+                for node in graph.values():
+                    if node['class_type'] == 'VAEDecode':
+                        self.assertEqual(node['inputs']['vae'], ['9181', 0])
+                conditioning = '182' if variant.startswith('fflf') else '136'
+                self.assertEqual(graph[conditioning]['inputs']['vae'], ['119', 0])
+                self.assertEqual(graph['121']['inputs']['vae'], ['120', 0])
+                self.assertEqual(meta['video_decoder'], 'sol_int8')
+
+    def test_context_off_original_decoder_and_fp16(self):
+        graph, _ = self.build(video_decoder='original')
+        self.assertNotIn('9180', graph)
+        self.assertNotIn('9181', graph)
+        graph, _ = self.build(video_decoder='sol_fp16')
+        self.assertEqual(graph['9181']['inputs']['vae_name'], 'minimax_h3_sol_vae_fp16.safetensors')
+        with self.assertRaisesRegex(handler.InputError, 'FirstBlockCache'):
+            self.build(context_windows=True, cache_enabled=True)
+        with self.assertRaisesRegex(handler.InputError, 'boolean'):
+            self.build(context_windows='false')
+
     def test_sla_pairs_sparse_adapter_and_shift_without_larry(self):
         from h3_acceleration import SLA_ADAPTER
         (handler.COMFY_ROOT/'models/loras/H3'/SLA_ADAPTER).touch()

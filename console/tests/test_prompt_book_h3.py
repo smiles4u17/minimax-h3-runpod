@@ -230,6 +230,15 @@ class PromptBookH3Tests(unittest.TestCase):
                 {"subject_id": "ada", "video_id": "clip"}, catalog=catalog, baked={"prompt": "Test prompt"})
         self.assertEqual(request["reference_video_audio"], [False])
 
+    def test_native_runtime_options_override_inherited_values(self):
+        request, _ = prompt_book_h3.build_prompt_book_h3_request(
+            {"subject_id": "ada", "video_id": "clip", "context_windows": True,
+             "video_decoder": "sol_fp16", "h3_generation": {
+                 "context_windows": False, "video_decoder": "original"}},
+            catalog=self.catalog(), baked={"prompt": "A toy robot"})
+        self.assertTrue(request["context_windows"])
+        self.assertEqual(request["video_decoder"], "sol_fp16")
+
     def test_main_h3_generation_is_inherited_without_stale_references(self):
         main = {
             "task": "r2v", "workflow_variant": "ref2v_20260920",

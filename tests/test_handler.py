@@ -271,6 +271,8 @@ class WorkflowTests(unittest.TestCase):
                 "alternate_h3.safetensors",
             ],
             "vae": [
+                "minimax_h3_sol_vae_fp16.safetensors",
+                "minimax_h3_sol_vae_int8_convrot.safetensors",
                 "minimax_h3_video_vae_fp16.safetensors",
                 "minimax_h3_audio_vae_fp32.safetensors",
                 "alternate_video_vae.safetensors",

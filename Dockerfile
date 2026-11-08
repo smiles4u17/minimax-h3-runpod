@@ -11,7 +11,7 @@ ARG SAGEATTENTION_WHEEL_URL
 ARG SAGEATTENTION_WHEEL_SHA256
 ARG SAGEATTENTION_ADA_WHEEL_URL
 ARG SAGEATTENTION_ADA_WHEEL_SHA256
-ARG COMFYUI_REF=1f641fd9337f0ec4d635a28415a8d25a8d15f753
+ARG COMFYUI_REF=49b61c3cd044fb65acd97a960467a00414694146
 ARG KJNODES_REF=35e5956193769d18a13136cdedb73a36a05c73e6
 ARG TURBO_REF=55fee864dd7b2976b1c4ce3c3d5f7968f181409f
 ARG FBCACHE_REF=18362a23175771e68e4aa737d333bf4d4ee825fc
@@ -25,6 +25,18 @@ ENV COMFY_ROOT=/comfyui \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HUB_ENABLE_HF_TRANSFER=1
+
+# Update only ComfyUI-owned support libraries; retain the image's Torch/CUDA
+# and attention constraints. The pinned core requires these exact versions.
+RUN python3.12 - <<'PY'
+from pathlib import Path
+import re
+p = Path('/opt/comfyui-runtime-constraints.txt')
+lines = p.read_text().splitlines()
+versions = {'comfy-aimdo': '0.6.0', 'comfy-kitchen': '0.2.40'}
+lines = [line for line in lines if not any(re.match(r'^' + name + r'\s*[=<>~!]', line) for name in versions)]
+p.write_text('\n'.join(lines + [f'{name}=={version}' for name, version in versions.items()]) + '\n')
+PY
 
 RUN cp -a /opt/comfyui-baked /comfyui \
     && rm -rf /comfyui/custom_nodes/* \

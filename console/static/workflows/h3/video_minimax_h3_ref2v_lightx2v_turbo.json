@@ -1,8 +1,8 @@
 {
   "id": "e3f2b845-8f2c-4b5a-9caf-eac1029d3e7e",
   "revision": 0,
-  "last_node_id": 143,
-  "last_link_id": 286,
+  "last_node_id": 145,
+  "last_link_id": 287,
   "nodes": [
     {
       "id": 116,
@@ -72,7 +72,6 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            251,
             273
           ]
         }
@@ -882,7 +881,6 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            252,
             285
           ]
         }
@@ -1006,7 +1004,7 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            286
+            287
           ]
         }
       ],
@@ -1131,6 +1129,88 @@
         "auto",
         "auto"
       ]
+    },
+    {
+      "id": 144,
+      "type": "MiniMaxH3ContextWindows",
+      "title": "Context windows \u2014 bypassed; Ctrl+B to enable",
+      "pos": [
+        -700,
+        5500
+      ],
+      "size": [
+        340,
+        180
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 287
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            286,
+            252
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MiniMaxH3ContextWindows"
+      },
+      "widgets_values": [
+        124,
+        39,
+        "pyramid",
+        true,
+        false
+      ]
+    },
+    {
+      "id": 145,
+      "type": "VAELoader",
+      "title": "Sol video decoder (reference encoder unchanged)",
+      "pos": [
+        50,
+        5500
+      ],
+      "size": [
+        500,
+        80
+      ],
+      "flags": {},
+      "order": 27,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            251
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader",
+        "models": [
+          {
+            "name": "minimax_h3_sol_vae_int8_convrot.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/54472221d27c695fca9621b0c3ed52f06c4af707/vae/minimax_h3_sol_vae_int8_convrot.safetensors",
+            "directory": "vae"
+          }
+        ]
+      },
+      "widgets_values": [
+        "minimax_h3_sol_vae_int8_convrot.safetensors"
+      ]
     }
   ],
   "links": [
@@ -1144,7 +1224,7 @@
     ],
     [
       251,
-      119,
+      145,
       0,
       122,
       1,
@@ -1152,7 +1232,7 @@
     ],
     [
       252,
-      127,
+      144,
       0,
       124,
       0,
@@ -1352,9 +1432,17 @@
     ],
     [
       286,
-      142,
+      144,
       0,
       126,
+      0,
+      "MODEL"
+    ],
+    [
+      287,
+      142,
+      0,
+      144,
       0,
       "MODEL"
     ]

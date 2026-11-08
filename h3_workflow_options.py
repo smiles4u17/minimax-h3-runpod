@@ -4,6 +4,22 @@ import re
 
 VARIANTS = {"legacy", "fflf_20260920", "ref2v_20260920"}
 
+SOL_VAES = {
+    'sol_int8': 'minimax_h3_sol_vae_int8_convrot.safetensors',
+    'sol_fp16': 'minimax_h3_sol_vae_fp16.safetensors',
+}
+
+def runtime_options(data):
+    enabled = data.get('context_windows', False)
+    if not isinstance(enabled, bool):
+        raise ValueError('context_windows must be a boolean')
+    decoder = data.get('video_decoder', 'sol_int8')
+    if decoder not in (*SOL_VAES, 'original'):
+        raise ValueError('video_decoder must be sol_int8, sol_fp16 or original')
+    if enabled and data.get('cache_enabled', False):
+        raise ValueError('Disable FirstBlockCache when using context windows; its cache is not window-specific')
+    return {'context_windows': enabled, 'video_decoder': decoder}
+
 def reference_frame_cap(settings, output_frames):
     """Keep an explicit reference trim; never widen it to the output duration."""
     raw = settings.get("frame_load_cap", output_frames)
@@ -16,11 +32,12 @@ def reference_frame_cap(settings, output_frames):
     return min(int(value), output_frames)
 
 def workflow_options(data):
+    runtime = runtime_options(data)
     variant = str(data.get("workflow_variant") or "legacy")
     if variant not in VARIANTS:
         raise ValueError("Unknown H3 workflow variant")
     if variant == "legacy":
-        return {"workflow_variant": variant}
+        return {"workflow_variant": variant, **runtime}
     def flag(name, default):
         value = data.get(name, default)
         if not isinstance(value, bool):
@@ -54,7 +71,7 @@ def workflow_options(data):
         if mode not in ('none', 'latent', 'rtx'):
             raise ValueError('Output mode must be none, latent or rtx')
         result.update(output_mode=mode, latent_upscale=mode in ('latent', 'rtx'), rtx_upscale=mode == 'rtx')
-    return result
+    return {**result, **runtime}
 
 
 def validate_reference_photos(images):

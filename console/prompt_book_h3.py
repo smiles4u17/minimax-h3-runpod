@@ -33,7 +33,7 @@ BETA5_MODEL = "10Eros_Max_h3_TURBO-hybrid_beta5.safetensors"
 H3_GENERATION_FIELDS = {
     "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
     "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
-    "latent_upscale_model", "latent_upscale_precision", "cache_enabled", "cache_threshold", "attention", "attention_profile", "reference_resolution",
+    "context_windows", "video_decoder", "latent_upscale_model", "latent_upscale_precision", "cache_enabled", "cache_threshold", "attention", "attention_profile", "reference_resolution",
     "seed", "seed_random", "turbo_enabled", "use_larry", "turbo_family",
     "turbo_lora", "turbo_strength", "pdd_enabled", "sampling_preset",
     "sparse_keep_percent", "sparse_tau", "sparse_start_percent",
@@ -605,6 +605,8 @@ def build_prompt_book_h3_request(
             "frame_load_cap": frame_cap,
         }],
         "use_reference_audio_as_output": False,
+        "context_windows": flag(data, "context_windows", False),
+        "video_decoder": data.get("video_decoder", "sol_int8"),
         "video_vae": "minimax_h3_video_vae_fp16.safetensors",
         "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
         "reference_audio_paths": [],
@@ -653,7 +655,7 @@ def build_prompt_book_h3_request(
     explicit_generation = {key: request[key] for key in (
         "steps", "sampler", "scheduler", "megapixels", "final_megapixels",
         "latent_upscale", "rtx_upscale", "pass1_split", "second_pass_sigma",
-        "latent_upscale_model", "latent_upscale_precision",
+        "context_windows", "video_decoder", "latent_upscale_model", "latent_upscale_precision",
         "cache_enabled", "cache_threshold", "attention", "seed_random",
         "diagnostic_frames", "ref2va_model", "reference_resolution",
     ) if key in data}

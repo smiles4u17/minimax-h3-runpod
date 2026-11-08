@@ -5208,6 +5208,7 @@ async def run_h3(data: dict[str, Any]):
         if not isinstance(advanced, dict):
             raise ValueError("Advanced JSON must be an object")
         protected = {
+            "context_windows", "video_decoder",
             "task", "prompt", "duration", "megapixels", "steps", "seed", "seed_random", "sampler", "scheduler", "cache_enabled", "cache_threshold",
             "attention", "pdd_enabled", "acceleration_recipe", "pdd_lora", "shift_video", "shift_audio", "sparse_keep_percent", "sparse_tau", "sparse_start_percent", "sparse_end_percent", "sparse_trained_weights", "aspect_ratio", "filename_prefix", "model", "clip", "video_vae",
             "audio_vae", "clip_projection", "turbo_enabled", "turbo_family", "turbo_lora", "turbo_strength",

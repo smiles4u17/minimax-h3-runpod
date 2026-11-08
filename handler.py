@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 import requests
 import runpod
-from h3_workflow_options import reference_frame_cap
+from h3_workflow_options import reference_frame_cap, runtime_options, SOL_VAES
 from telemetry import JobTelemetry, is_oom, runtime_inventory
 from output_naming import copy_flat_output
 from h3_attention_profiles import apply_profile as apply_attention_profile, validate_attention
@@ -510,6 +510,13 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         workflow["9160"] = {"class_type": "BlockSparseAttention", "inputs": inputs}
         model = ["9160", 0]
 
+    runtime = runtime_options(payload)
+    if runtime['context_windows']:
+        workflow['9180'] = {'class_type': 'MiniMaxH3ContextWindows', 'inputs': {
+            'model': model, 'context_length': 124, 'context_overlap': 39,
+            'fuse_method': 'pyramid', 'freenoise': True, 'split_conds_to_windows': False}}
+        model = ['9180', 0]
+
     if cache_enabled:
         workflow[spec["cache"]]["inputs"]["threshold"] = threshold
         workflow[spec["cache"]]["inputs"]["model"] = model
@@ -839,6 +846,17 @@ def build_preset(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
         metadata.update(apply_variant(workflow, payload, _materialize_asset, _model_name))
     except ValueError as exc:
         raise InputError(str(exc)) from exc
+    # Sol is used only for decode. Preserve the existing reference encoder and
+    # its frame mapping for FL2V, Ref2V, masked edits and keyframe conditioning.
+    decoder = options['video_decoder']
+    if decoder != 'original':
+        name = _model_name({'decoder': SOL_VAES[decoder]}, 'decoder', 'vae', SOL_VAES[decoder])
+        workflow['9181'] = {'class_type': 'VAELoader', 'inputs': {'vae_name': name}}
+        for node in workflow.values():
+            if node.get('class_type') in ('VAEDecode', 'VAEDecodeTiled'):
+                node['inputs']['vae'] = ['9181', 0]
+    metadata.update(options)
+    metadata['video_decoder_model'] = SOL_VAES.get(decoder, metadata['video_vae'])
     metadata["task"] = requested_task
     return workflow, metadata
 

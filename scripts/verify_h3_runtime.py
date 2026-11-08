@@ -8,6 +8,8 @@ from pathlib import Path
 
 root = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
 checks = {
+    "comfy_extras/nodes_context_windows.py": ['"MiniMaxH3ContextWindows"', "default=124", "default=39"],
+    "comfy/sd.py": ["noncausal_decoder=noncausal"],
     "comfy/ldm/minimax/model.py": ["out[0] = out[0] * denoise_mask", "out[1] = out[1] * audio_denoise_mask", "sample_sigmas"],
     "comfy/model_management.py": ["RAM limited by cgroup"],
     "comfy_extras/nodes_sparse_attention.py": ['node_id="BlockSparseAttention"', '"sla"', '"sol-attn"', '"vsa"'],
@@ -26,13 +28,16 @@ sys.path.insert(0, str(root))
 sys.argv.append('--cpu')
 import comfy.options
 comfy.options.enable_args_parsing()
+from comfy_extras.nodes_context_windows import MiniMaxH3ContextWindowsNode
+assert MiniMaxH3ContextWindowsNode.define_schema().node_id == 'MiniMaxH3ContextWindows'
+from comfy.ldm.minimax.vae import MiniMaxH3VideoVAE
 node_root = root / 'custom_nodes/h3_pdd'
 spec = importlib.util.spec_from_file_location('h3_pdd_gate', node_root / '__init__.py', submodule_search_locations=[str(node_root)])
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 assert module._EXTENSION is not None, 'PDD extension failed to import'
-for package, version in {"comfy-aimdo": "0.5.3", "comfy-kitchen": "0.2.33"}.items():
+for package, version in {"comfy-aimdo": "0.6.0", "comfy-kitchen": "0.2.40", "torch": "2.10.0+cu130", "sageattention": "2.2.0"}.items():
     actual = importlib.metadata.version(package)
     assert actual == version, f"Unvalidated {package}: {actual}; expected {version}"
 print("H3 masked, sparse, PDD and cgroup runtime build checks passed")
