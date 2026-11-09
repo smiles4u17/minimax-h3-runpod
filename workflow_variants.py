@@ -64,13 +64,11 @@ def apply_variant(graph, payload, materialize, model_name):
             sigmas = copy.deepcopy(graph['125']['inputs']['sigmas'])
             add('9300', 'SplitSigmas', sigmas=sigmas, step=effective_split)
             graph['125']['inputs']['sigmas'] = ['9300', 0]
-        add('9301', 'LTXVSeparateAVLatent', av_latent=['125', 1])
         add('9302', 'ResolutionSelector', aspect_ratio=payload.get('aspect_ratio','16:9 (Widescreen)'), megapixels=options['final_megapixels'], multiple=32)
         name = model_name({'upscaler':options['latent_upscale_model']}, 'upscaler', 'latent_upscale_models', options['latent_upscale_model'])
-        add('9303', 'MinimaxH3LatentUpscaler3D', latent=['9301',0], model_name=name,
-            mode='target dimensions', **{'mode.width':['9302',0], 'mode.height':['9302',1]},
-            align=32, enable_temporal_chunking=True, force_unload=True, device='cuda', precision=options['latent_upscale_precision'])
-        add('9304', 'LTXVConcatAVLatent', video_latent=['9303',0], audio_latent=['9301',1])
+        add('9303', 'LatentUpscaleModelLoader', model_name=name)
+        add('9304', 'MiniMaxH3LatentUpscaleWithModel', model=['9303', 0],
+            samples=['125', 1], width=['9302', 0], height=['9302', 1])
         # Ref2V stores independent reference blocks, not target-shaped hints.
         # Reuse their VAE/Qwen encoding. FL2V/keyframes have spatial masks and
         # still need rebuilding at the refinement resolution.

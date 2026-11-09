@@ -27,3 +27,17 @@ back windowed sampling, clear Context windows. No measured speedup is claimed.
 Sources:
 - https://github.com/Comfy-Org/ComfyUI/blob/v0.44.1/comfy_extras/nodes_context_windows.py
 - https://huggingface.co/Comfy-Org/MiniMax-H3/tree/54472221d27c695fca9621b0c3ed52f06c4af707/vae
+
+## Native learned upscaler
+
+The two-pass builder now uses `LatentUpscaleModelLoader` followed by
+`MiniMaxH3LatentUpscaleWithModel` directly on the first sampler's denoised AV
+latent. The native node returns the combined latent with audio unchanged;
+separate/concatenate nodes and the original custom upscaler installation are
+removed. The high-resolution guider and refinement schedules are retained.
+Existing original BF16 and v1 BF16/FP16/FP32 checkpoints remain selectable.
+New selections default to v1 BF16. Native ComfyUI chooses inference precision;
+checkpoint storage dtype does not force execution dtype. Saved manual precision
+values are accepted for migration and normalized to `auto` in the worker input.
+
+Source: https://github.com/Comfy-Org/ComfyUI/pull/17412

@@ -66,8 +66,6 @@ RUN set -eux; \
       https://github.com/lericogit/ComfyUI-MiniMaxH3-LowVRAM.git "$H3_LOWVRAM_REF"; \
     install_node /comfyui/custom_nodes/ComfyUI-H3-Multishot \
       https://github.com/jlucasmcrell/ComfyUI-H3-Multishot.git d7d197709fc93c1afb125e3db1dfd4ac0ae28c60; \
-    install_node /comfyui/custom_nodes/Comfyui_Minimax_h3_latent_Upscaler \
-      https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler.git d7c01b9011f2e8439493f6c02c29995a27df276f; \
     install_node /comfyui/custom_nodes/Nvidia_RTX_Nodes_ComfyUI \
       https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI.git 892515e3eb9a4920a131a502a047e47adca9eb0d; \
     printf '%s\n' 'from .h3_keyframes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS' > /comfyui/custom_nodes/ComfyUI-H3-Multishot/__init__.py; \
@@ -114,7 +112,6 @@ RUN python3.12 -m pip install --no-cache-dir \
 
 COPY handler.py telemetry.py output_naming.py workflow_variants.py h3_workflow_options.py h3_attention_profiles.py h3_acceleration.py h3_sampling.json start.sh extra_model_paths.yaml /opt/minimax-h3/
 COPY scripts /opt/minimax-h3/scripts
-RUN python3.12 /opt/minimax-h3/scripts/patch_latent_upscaler.py
 COPY scripts/h3_quant_safety.py /comfyui/custom_nodes/ComfyUI-KJNodes/nodes/h3_quant_safety.py
 RUN python3.12 /opt/minimax-h3/scripts/patch_sage_addresses.py
 COPY workflows /opt/minimax-h3/workflows

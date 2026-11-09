@@ -522,12 +522,11 @@
       <label>Final size (MP)<input id="pb_final_megapixels" type="number" min="0.2" max="2" step="0.05" value="0.9"></label>
       <label>Reference video detail<select id="pb_reference_resolution"><option value="generation">Match first-pass size (faster)</option><option value="original">Original detail (slower)</option></select></label>
       <label>Latent upscale model<select id="pb_latent_upscale_model">
-        <option value="minimax_h3_latent_upscaler_3d_bf16.safetensors">Original BF16 (existing default)</option>
-        <option value="minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors">v1 BF16 - 691 MB</option>
+        <option value="minimax_h3_latent_upscaler_3d_bf16.safetensors">Original BF16 (legacy checkpoint)</option>
+        <option value="minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors" selected>v1 BF16 - 691 MB</option>
         <option value="minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors">v1 FP16 - 691 MB</option>
         <option value="minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth">v1 FP32 - 1.38 GB</option>
-      </select><small>Models load from the RunPod volume. Selection sets matching precision.</small></label>
-      <label>Latent inference precision<select id="pb_latent_upscale_precision"><option value="bf16">BF16 (default)</option><option value="fp16">FP16</option><option value="fp32">FP32 (more memory)</option></select></label>
+      </select><small>Native H3 upscaler; same checkpoints on the RunPod volume. ComfyUI chooses inference precision automatically.</small></label>
       <label><input id="pb_rtx_upscale" type="checkbox"> Use RTX video upscale</label>
       <label><input id="pb_diagnostic_frames" type="checkbox"> Save first-pass and pre-RTX diagnostic frames</label>
     </div>
@@ -600,11 +599,11 @@
   <pre id="log"></pre>
 </section>
 <script src="/static/app.js?v=16.27"></script>
-<script src="/static/prompt_book.js?v=16.27"></script>
+<script src="/static/prompt_book.js?v=16.28"></script>
 <script src="/static/h3_attention_profiles.js?v=16.24"></script>
 <script src="/static/dashboard.js?v=15.89"></script>
 <script src="/static/h3_job.js?v=16.01"></script>
-<script src="/static/h3_variants.js?v=16.26"></script>
+<script src="/static/h3_variants.js?v=16.28"></script>
 <script src="/static/h3_media_sections.js?v=16.26"></script>
 <script src="/static/workspace.js?v=16.15"></script>
 <script src="/static/monitor_jobs.js?v=16.14"></script>

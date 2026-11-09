@@ -27,12 +27,11 @@ function bindH3PhotoDrop(card,upload){
     <label title="Editing the split selects remaining sigmas so both passes use this split.">First-pass sigma split<input id="h3_pass1_split" type="number" min="1" step="1" value="3"></label>
     <label>Second-pass sigmas<select id="h3_second_pass_sigma"><option value="1">1 — 3 refine steps</option><option value="2" selected>2 — 4 refine steps</option><option value="3">3 — 5 refine steps</option><option value="4">4 — remaining first-pass sigmas</option><option value="5">5 — 8 refine steps</option></select></label>
     <label>Latent upscale model<select id="h3_latent_upscale_model">
-      <option value="minimax_h3_latent_upscaler_3d_bf16.safetensors">Original BF16 (existing default)</option>
+      <option value="minimax_h3_latent_upscaler_3d_bf16.safetensors">Original BF16 (legacy checkpoint)</option>
       <option value="minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors">v1 BF16 — 691 MB</option>
       <option value="minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors">v1 FP16 — 691 MB</option>
       <option value="minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth">v1 FP32 — 1.38 GB</option>
-    </select><small>Models load from the RunPod volume. Selecting a model sets its matching precision; you can override it below.</small></label>
-    <label>Latent inference precision<select id="h3_latent_upscale_precision"><option value="bf16">BF16 (default)</option><option value="fp16">FP16</option><option value="fp32">FP32 (more memory)</option></select></label>
+    </select><small>Native H3 upscaler; same checkpoints on the RunPod volume. ComfyUI chooses inference precision automatically.</small></label>
     </fieldset>`;
   models.querySelector('.h3SectionBody').prepend(panel);
   const photos=document.createElement('details');photos.id='h3_variant_photos';photos.className='hidden h3MediaSection';photos.open=true;
@@ -76,7 +75,7 @@ function bindH3PhotoDrop(card,upload){
     $('h3_use_larry').disabled=chk('h3_no_turbo');
     $('h3_sampler').disabled=chk('h3_turbo_enabled')&&chk('h3_use_larry');
     for(const id of ['h3_latent_upscale','h3_rtx_upscale','h3_use_multi_image'])$(id).disabled=!active;
-    for(const id of ['h3_final_megapixels','h3_pass1_split','h3_second_pass_sigma','h3_latent_upscale_model','h3_latent_upscale_precision'])$(id).disabled=!active||!chk('h3_latent_upscale');
+    for(const id of ['h3_final_megapixels','h3_pass1_split','h3_second_pass_sigma','h3_latent_upscale_model'])$(id).disabled=!active||!chk('h3_latent_upscale');
     $('h3_pass1_split').max=Math.max(1,Number(val('h3_steps'))-(val('h3_second_pass_sigma')==='4'?1:0));
     const steps=Number(val('h3_steps')),split=Number(val('h3_pass1_split')),mode=Number(val('h3_second_pass_sigma'));
     const refine=mode===4?Math.max(0,steps-split):({1:3,2:4,3:5,5:8}[mode]||0);
@@ -97,14 +96,13 @@ function bindH3PhotoDrop(card,upload){
   group('Reference video',['h3_reference_resolution']);
   group('Sampling',['h3_steps','h3_pass1_split','h3_second_pass_sigma','h3_sampler','h3_scheduler','h3_seed','h3_seed_random']);
   group('Turbo',['h3_no_turbo','h3_use_larry','h3_turbo_lora','h3_turbo_strength']);
-  group('Latent model',['h3_latent_upscale_model','h3_latent_upscale_precision']);
-  $('h3_latent_upscale_model').onchange=()=>{const match=val('h3_latent_upscale_model').match(/_(bf16|fp16|fp32)\.(?:safetensors|pth)$/);if(match)set('h3_latent_upscale_precision',match[1]);persistSettingsSoon()};
-  $('h3_latent_upscale_precision').onchange=()=>persistSettingsSoon();
+  group('Latent model',['h3_latent_upscale_model']);
+  $('h3_latent_upscale_model').onchange=()=>persistSettingsSoon();
   photos.querySelector('summary').after($('h3_use_multi_image').closest('label'));
   panel.querySelector('fieldset').remove();panel.querySelector('h3').remove();
   generationBody.querySelector(':scope > h3').textContent='Runtime & advanced';
   const original=h3Settings;
-  window.h3Settings=()=>{const legacy=original();const settings={...legacy,legacy_inputs:{first_frame_path:legacy.first_frame_path,last_frame_path:legacy.last_frame_path,reference_paths:legacy.reference_paths,reference_subjects:legacy.reference_subjects},workflow_variant:variant(),use_multi_image:chk('h3_use_multi_image'),use_larry:chk('h3_use_larry'),latent_upscale:chk('h3_latent_upscale'),rtx_upscale:chk('h3_rtx_upscale'),final_megapixels:Number(val('h3_final_megapixels')),pass1_split:Number(val('h3_pass1_split')),second_pass_sigma:Number(val('h3_second_pass_sigma')),latent_upscale_model:val('h3_latent_upscale_model'),latent_upscale_precision:val('h3_latent_upscale_precision')||'bf16',photo_paths:Array.from({length:variant()==='ref2v_20260920'&&!chk('h3_use_multi_image')?9:4},(_,i)=>val('h3_photo'+(i+1)).trim()),keyframe_positions:Array.from({length:4},(_,i)=>val('h3_keyframe'+(i+1)).trim())};
+  window.h3Settings=()=>{const legacy=original();const settings={...legacy,legacy_inputs:{first_frame_path:legacy.first_frame_path,last_frame_path:legacy.last_frame_path,reference_paths:legacy.reference_paths,reference_subjects:legacy.reference_subjects},workflow_variant:variant(),use_multi_image:chk('h3_use_multi_image'),use_larry:chk('h3_use_larry'),latent_upscale:chk('h3_latent_upscale'),rtx_upscale:chk('h3_rtx_upscale'),final_megapixels:Number(val('h3_final_megapixels')),pass1_split:Number(val('h3_pass1_split')),second_pass_sigma:Number(val('h3_second_pass_sigma')),latent_upscale_model:val('h3_latent_upscale_model'),latent_upscale_precision:'auto',photo_paths:Array.from({length:variant()==='ref2v_20260920'&&!chk('h3_use_multi_image')?9:4},(_,i)=>val('h3_photo'+(i+1)).trim()),keyframe_positions:Array.from({length:4},(_,i)=>val('h3_keyframe'+(i+1)).trim())};
     if(isNew()){settings.task=settings.workflow_variant==='fflf_20260920'?'fl2v':'r2v';settings.first_frame_path=settings.use_multi_image?settings.photo_paths.find(Boolean)||'':settings.photo_paths[0];settings.last_frame_path=settings.photo_paths[1];settings.reference_paths=settings.photo_paths.filter(Boolean);settings.turbo_enabled=!chk('h3_no_turbo');settings.sampling_preset='custom';settings.pdd_enabled=false;settings.turbo_family=settings.use_larry?'larry':'lightx2v';if(!settings.turbo_enabled&&settings.second_pass_sigma!==4)settings.pass1_split=settings.steps}
     settings.reference_resolution=val('h3_reference_resolution')||'generation';
     settings.diagnostic_frames=chk('h3_diagnostic_frames');
@@ -119,7 +117,7 @@ function bindH3PhotoDrop(card,upload){
       const option=document.createElement('option');option.value=h3.latent_upscale_model;option.textContent=h3.latent_upscale_model;$('h3_latent_upscale_model').appendChild(option);
     }
     for(const [name,defaultValue] of Object.entries({use_multi_image:false,use_larry:(h3.turbo_family==='larry'||(!h3.turbo_family&&h3.sampler==='h3_turbo')),latent_upscale:true,rtx_upscale:true}))setChk('h3_'+name,h3[name]??defaultValue);
-    for(const [name,defaultValue] of Object.entries({final_megapixels:1,pass1_split:Math.min(val('h3_task')==='r2v'?6:3,Math.max(1,Number(h3.steps??6)-1)),second_pass_sigma:2,latent_upscale_precision:'bf16',latent_upscale_model:'minimax_h3_latent_upscaler_3d_bf16.safetensors'}))set('h3_'+name,h3[name]??defaultValue);
+    for(const [name,defaultValue] of Object.entries({final_megapixels:1,pass1_split:Math.min(val('h3_task')==='r2v'?6:3,Math.max(1,Number(h3.steps??6)-1)),second_pass_sigma:2,latent_upscale_model:'minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors'}))set('h3_'+name,h3[name]??defaultValue);
     const paths=h3.photo_paths||(h3.task==='r2v'?h3.reference_paths:[h3.first_frame_path,h3.last_frame_path])||[];
     for(let i=1;i<=9;i++){set('h3_photo'+i,paths[i-1]||'');set('h3_keyframe'+i,(h3.keyframe_positions||[])[i-1]||'');void $('h3_photo'+i).refreshPreview()}
     sync();

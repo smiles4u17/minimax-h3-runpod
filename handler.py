@@ -1067,7 +1067,7 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         models = [{'category': fields[k], 'name': v} for node in workflow.values()
                   for k, v in node.get('inputs', {}).items() if k in fields and isinstance(v, str)]
         models.extend({'category': 'latent_upscale_models', 'name': node['inputs']['model_name']}
-                      for node in workflow.values() if node.get('class_type') == 'MinimaxH3LatentUpscaler3D')
+                      for node in workflow.values() if node.get('class_type') == 'LatentUpscaleModelLoader')
         resolved = requests.post(COMFY_URL + '/h3/resolve-models', json={'models': models}, timeout=30)
         if resolved.status_code >= 400:
             raise InputError(resolved.text[:2000])

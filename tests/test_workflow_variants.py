@@ -80,6 +80,7 @@ class VariantTests(unittest.TestCase):
             (handler.COMFY_ROOT/'models/loras'/name).touch()
         folder=handler.COMFY_ROOT/'models/latent_upscale_models';folder.mkdir()
         (folder/'minimax_h3_latent_upscaler_3d_bf16.safetensors').touch()
+        (folder/'minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors').touch()
     tearDown = test_handler.WorkflowTests.tearDown
     def build(self, variant='fflf_20260920', **changes):
         data=dict(task='fl2v_20260920' if variant.startswith('fflf') else 'r2v_20260920',
@@ -111,13 +112,21 @@ class VariantTests(unittest.TestCase):
         refs = [key for key in graph['136']['inputs'] if key.startswith('ref_images.')]
         self.assertEqual(refs, ['ref_images.ref_image_0', 'ref_images.ref_image_1'])
 
-    def test_upscaler_precision_reaches_graph(self):
+    def test_native_upscaler_preserves_av_and_uses_selected_checkpoint(self):
         for variant in ('fflf_20260920', 'ref2v_20260920'):
-            for precision in ('bf16', 'fp16', 'fp32'):
+            for precision in ('auto', 'bf16', 'fp16', 'fp32'):
                 graph, meta = self.build(variant, latent_upscale_precision=precision)
-                self.assertEqual(graph['9303']['inputs']['precision'], precision)
-        graph, _ = self.build()
-        self.assertEqual(graph['9303']['inputs']['precision'], 'bf16')
+                self.assertEqual(graph['9303']['class_type'], 'LatentUpscaleModelLoader')
+                self.assertEqual(graph['9303']['inputs']['model_name'], 'minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors')
+                self.assertEqual(graph['9304'], {'class_type': 'MiniMaxH3LatentUpscaleWithModel',
+                    'inputs': {'model': ['9303', 0], 'samples': ['125', 1],
+                               'width': ['9302', 0], 'height': ['9302', 1]}})
+                self.assertEqual(meta['latent_upscale_precision'], 'auto')
+                self.assertNotIn('9301', graph)
+                self.assertFalse(any(n['class_type'] in ('MinimaxH3LatentUpscaler3D',
+                    'LTXVSeparateAVLatent', 'LTXVConcatAVLatent') for n in graph.values()))
+        graph, _ = self.build(latent_upscale_model='minimax_h3_latent_upscaler_3d_bf16.safetensors')
+        self.assertEqual(graph['9303']['inputs']['model_name'], 'minimax_h3_latent_upscaler_3d_bf16.safetensors')
         with self.assertRaisesRegex(ValueError, 'precision'):
             self.build(latent_upscale_precision='fp8')
 
@@ -126,7 +135,7 @@ class VariantTests(unittest.TestCase):
             for choice in (1,2,3,4):
                 graph, meta=self.build(variant,second_pass_sigma=choice)
                 self.assertEqual(graph['125']['inputs']['sigmas'],['9300',0])
-                self.assertEqual(graph['9301']['inputs']['av_latent'],['125',1])
+                self.assertEqual(graph['9304']['inputs']['samples'],['125',1])
                 self.assertEqual(graph['9308']['inputs']['sigmas'],['9300',1] if choice==4 else ['9307',0])
                 if choice!=4:self.assertEqual(len(graph['9307']['inputs']['sigmas'].split(',')),choice+3)
                 self.assertEqual(graph['122']['inputs']['samples'],['9308',0])
@@ -159,7 +168,7 @@ class VariantTests(unittest.TestCase):
         graph, _ = self.build('ref2v_20260920', pass1_split=8, second_pass_sigma=5)
         self.assertNotIn('9300', graph)
         self.assertEqual(graph['125']['inputs']['sigmas'], ['124', 0])
-        self.assertEqual(graph['9301']['inputs']['av_latent'], ['125', 1])
+        self.assertEqual(graph['9304']['inputs']['samples'], ['125', 1])
         self.assertEqual(graph['9308']['inputs']['sigmas'], ['9307', 0])
         self.assertEqual(len(graph['9307']['inputs']['sigmas'].split(',')), 9)
 
@@ -169,7 +178,7 @@ class VariantTests(unittest.TestCase):
                 graph, meta = self.build(variant, turbo_enabled=False, second_pass_sigma=choice)
                 self.assertNotIn('9300', graph)
                 self.assertEqual(graph['125']['inputs']['sigmas'], ['124', 0])
-                self.assertEqual(graph['9301']['inputs']['av_latent'], ['125', 1])
+                self.assertEqual(graph['9304']['inputs']['samples'], ['125', 1])
                 sigmas = [float(v) for v in graph['9307']['inputs']['sigmas'].split(',')]
                 self.assertEqual(sigmas[0], .45)
                 self.assertEqual(sigmas[-1], 0)

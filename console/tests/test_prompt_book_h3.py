@@ -551,7 +551,7 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertEqual((payload["pass1_split"], payload["second_pass_sigma"]), (14, 5))
         self.assertTrue(payload["latent_upscale"])
         self.assertEqual(payload["latent_upscale_model"], "minimax_h3_latent_upscaler_3d_conv_v1_fp32.pth")
-        self.assertEqual(payload["latent_upscale_precision"], "fp32")
+        self.assertEqual(payload["latent_upscale_precision"], "auto")
         self.assertNotIn("turbo_lora", payload)
 
 

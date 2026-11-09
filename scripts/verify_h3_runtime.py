@@ -8,12 +8,13 @@ from pathlib import Path
 
 root = Path(os.environ.get("COMFY_ROOT", "/comfyui"))
 checks = {
+    "comfy_extras/nodes_minimax_h3.py": ['node_id="MiniMaxH3LatentUpscaleWithModel"', 'node_id="MiniMaxH3SigmaShift"', 'io.Image.Input("first_frame", optional=True)'],
+    "comfy_extras/nodes_hunyuan.py": ['node_id="LatentUpscaleModelLoader"', "MiniMaxH3LatentUpscaler"],
     "comfy_extras/nodes_context_windows.py": ['"MiniMaxH3ContextWindows"', "default=124", "default=39"],
     "comfy/sd.py": ["noncausal_decoder=noncausal"],
     "comfy/ldm/minimax/model.py": ["out[0] = out[0] * denoise_mask", "out[1] = out[1] * audio_denoise_mask", "sample_sigmas"],
     "comfy/model_management.py": ["RAM limited by cgroup"],
     "comfy_extras/nodes_sparse_attention.py": ['node_id="BlockSparseAttention"', '"sla"', '"sol-attn"', '"vsa"'],
-    "comfy_extras/nodes_minimax_h3.py": ['node_id="MiniMaxH3SigmaShift"', 'io.Image.Input("first_frame", optional=True)'],
     "custom_nodes/h3_pdd/pdd_node.py": ['H3PDDAcceleration', 'strict_schedule'],
 }
 for filename, markers in checks.items():
@@ -31,6 +32,9 @@ comfy.options.enable_args_parsing()
 from comfy_extras.nodes_context_windows import MiniMaxH3ContextWindowsNode
 assert MiniMaxH3ContextWindowsNode.define_schema().node_id == 'MiniMaxH3ContextWindows'
 from comfy.ldm.minimax.vae import MiniMaxH3VideoVAE
+from comfy_extras.nodes_minimax_h3 import MiniMaxH3LatentUpscaleWithModel
+from comfy_extras.nodes_hunyuan import LatentUpscaleModelLoader
+assert MiniMaxH3LatentUpscaleWithModel.define_schema().node_id == "MiniMaxH3LatentUpscaleWithModel"
 node_root = root / 'custom_nodes/h3_pdd'
 spec = importlib.util.spec_from_file_location('h3_pdd_gate', node_root / '__init__.py', submodule_search_locations=[str(node_root)])
 module = importlib.util.module_from_spec(spec)
