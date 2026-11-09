@@ -361,8 +361,8 @@ def clamp_duration(seconds: Any) -> tuple[float, bool]:
         value = 0
     if value < 1:
         return 1.0, False
-    if value > 15:
-        return 15.0, True
+    if not math.isfinite(value):
+        raise ValueError("Duration must be finite")
     return round(value, 3), False
 
 
@@ -370,7 +370,7 @@ def chosen_duration(data: dict[str, Any], start: float, window: float, scene_dur
     """Output length. An explicit duration wins. Otherwise the trim window is used."""
     explicit = data.get("duration")
     if explicit in (None, ""):
-        return clamp_duration(window if window > 0 else scene_duration)
+        return clamp_duration(min(15, window if window > 0 else float(scene_duration or 15)))
     try:
         requested = float(explicit)
     except (TypeError, ValueError) as exc:

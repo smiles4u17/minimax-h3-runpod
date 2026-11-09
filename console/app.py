@@ -21,7 +21,7 @@ import h3_acceleration
 from grok_enhancer import INSTRUCTIONS as GROK_DEFAULT_SYSTEM_PROMPT
 from runpod_monitor import endpoint_worker_logs, list_endpoint_workers, pod_logs, worker_logs, safe_id as runpod_safe_id, redact as redact_log
 
-APP_VERSION = "web-v16.28-native-h3"
+APP_VERSION = "web-v16.29-long-h3"
 H3_SAMPLING = json.loads((Path(__file__).parent / 'h3_sampling.json').read_text(encoding='utf-8'))
 H3_SAMPLERS = set(H3_SAMPLING['samplers'])
 H3_SCHEDULERS = {"simple", "beta", "normal", "sgm_uniform", "karras", "exponential", "ddim_uniform", "linear_quadratic", "kl_optimal"}
@@ -91,7 +91,7 @@ def defaults() -> dict[str, Any]:
         "tts":{"engine":"windows_sapi","voice":"","rate":0,"volume":100,"piper_exe":"","piper_model":"","piper_config":"","output_path":"","inf_output_path":""},
 
 
-        "h3":{"task":"fl2v","first_frame_path":"","last_frame_path":"","reference_paths":[],"reference_video_paths":[],"reference_video_audio":[],"reference_video_settings":[],"reference_audio_paths":[],"reference_subjects":[],"subject_generated_prefix":"","audio_path":"","use_reference_audio_as_output":False,"prompt":"A cinematic shot with natural, stable motion.","duration":2.0,"megapixels":0.2,"steps":6,"seed":123456789,"seed_random":False,"sampling_preset":"stock_turbo","sampler":"h3_turbo","scheduler":"simple","cache_enabled":False,"cache_threshold":0.18,"attention":"auto","aspect_ratio":"16:9 (Widescreen)","filename_prefix":"H3","delivery":"auto","fl2va_model":"minimax_h3_fl2va_pruned_int8_convrot.safetensors","ref2va_model":"minimax_h3_ref2va_pruned_int8_convrot.safetensors","text_encoder":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","video_vae":"minimax_h3_video_vae_fp16.safetensors","audio_vae":"minimax_h3_audio_vae_fp32.safetensors","clip_projection":"","turbo_enabled":True,"turbo_lora":"minimax_h3_turbo_v4_step600_ema.safetensors","turbo_strength":1.0,"loras":[],"advanced_json":"{}"},
+        "h3":{"task":"fl2v","first_frame_path":"","last_frame_path":"","reference_paths":[],"reference_video_paths":[],"reference_video_audio":[],"reference_video_settings":[],"reference_audio_paths":[],"reference_subjects":[],"subject_generated_prefix":"","audio_path":"","use_reference_audio_as_output":False,"prompt":"A cinematic shot with natural, stable motion.","duration":15.0,"megapixels":0.2,"steps":6,"seed":123456789,"seed_random":False,"sampling_preset":"stock_turbo","sampler":"h3_turbo","scheduler":"simple","cache_enabled":False,"cache_threshold":0.18,"attention":"auto","aspect_ratio":"16:9 (Widescreen)","filename_prefix":"H3","delivery":"auto","fl2va_model":"minimax_h3_fl2va_pruned_int8_convrot.safetensors","ref2va_model":"minimax_h3_ref2va_pruned_int8_convrot.safetensors","text_encoder":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","video_vae":"minimax_h3_video_vae_fp16.safetensors","audio_vae":"minimax_h3_audio_vae_fp32.safetensors","clip_projection":"","turbo_enabled":True,"turbo_lora":"minimax_h3_turbo_v4_step600_ema.safetensors","turbo_strength":1.0,"loras":[],"advanced_json":"{}"},
         "h3_storage":{"network_volume_id":"vgc3ky6r6y","s3_endpoint_url":"","s3_access_key_id":"","s3_secret_access_key":"","s3_bucket":"vgc3ky6r6y","s3_region":"eu-ro-1","s3_prefix":"minimax-h3","runpod_volume_root":"/runpod-volume","comfyui_pod_id":""},
         "model_download":{"hf_token":"","civitai_token":""},
         "samimate":{"video_path":"","image_path":"","subject_prompt":"person","prompt":"","negative_prompt":"blurry, low quality, distorted","advanced_json":"{}","generation_backend":"h3","mask_frame_cap":0,"mode":"replace","delivery_override":"auto","width":832,"height":480,"seed":12345,"fps":16,"cfg":1.0,"steps":6,"pose_estimation":True,"face_detection":True,"mask_editing":True,"network_volume":True,"video_start":"","video_end":"","video_frame_cap":"","video_crop":"","use_wan_points":False},
@@ -2528,10 +2528,10 @@ def validation_result(tab: str, data: dict[str, Any]) -> dict[str, Any]:
             paths = {}
         else:
             errors.append("task must be t2v, fl2v or r2v.")
-        for field, minimum, maximum in (("duration", 1, 15), ("megapixels", 0.2, 2), ("cache_threshold", 0, 1)):
+        for field, minimum, maximum in (("duration", 1, float("inf")), ("megapixels", 0.2, 2), ("cache_threshold", 0, 1)):
             try:
-                value = float(data.get(field) if data.get(field) not in (None, "") else (2 if field == "duration" else 0.2 if field == "megapixels" else 6 if field == "steps" else 0.18))
-                if not minimum <= value <= maximum:
+                value = float(data.get(field) if data.get(field) not in (None, "") else (15 if field == "duration" else 0.2 if field == "megapixels" else 6 if field == "steps" else 0.18))
+                if not math.isfinite(value) or not minimum <= value <= maximum:
                     errors.append(f"{field} must be between {minimum} and {maximum}.")
             except (TypeError, ValueError):
                 errors.append(f"{field} must be numeric.")
@@ -2601,9 +2601,9 @@ def validation_result(tab: str, data: dict[str, Any]) -> dict[str, Any]:
             warnings.append("SAMimate frame cap is 0 or blank; full video processing can be slow.")
         if samimate_h3:
             try:
-                duration_value = float(data.get("duration") or 2)
-                if not 1 <= duration_value <= 15:
-                    errors.append("H3 SAMimate duration must be between 1 and 15 seconds.")
+                duration_value = float(data.get("duration") or 15)
+                if not math.isfinite(duration_value) or duration_value < 1:
+                    errors.append("H3 SAMimate duration must be a finite number of at least 1 second.")
             except (TypeError, ValueError):
                 errors.append("H3 SAMimate duration must be numeric.")
             if not configured_s3_helper(h3_storage_settings(s)):
@@ -4934,7 +4934,7 @@ async def run_h3(data: dict[str, Any]):
             refs = h3_path_list(data.get("reference_paths"), 9, "SAMimate identity images")
             if H3_PREVIEW.get() and (not data.get("source_video_path") or not data.get("mask_path")):
                 data.update(source_video_path="<prepared source pending>", mask_path="<subject mask pending>")
-                source_count = round(float(data.get("duration") or 2) * 24)
+                source_count = round(float(data.get("duration") or 15) * 24)
             else:
                 if not data.get("source_video_path") or not data.get("mask_path"):
                     raise ValueError("SAMimate H3 requires the prepared source and SAM subject mask")
@@ -4969,7 +4969,7 @@ async def run_h3(data: dict[str, Any]):
     if not prompt:
         raise HTTPException(400, "MiniMax H3 requires a prompt")
     try:
-        duration_value = float(data['duration'] if data.get('duration') is not None else 2.0)
+        duration_value = float(data['duration'] if data.get('duration') is not None else 15.0)
         megapixels_value = float(data['megapixels'] if data.get('megapixels') is not None else 0.2)
         cache_value = float(data['cache_threshold'] if data.get('cache_threshold') is not None else 0.18)
     except (TypeError, ValueError) as exc:
@@ -4989,8 +4989,8 @@ async def run_h3(data: dict[str, Any]):
         steps_value = validate_h3_steps(data.get("steps", 6 if turbo_enabled else 20))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    if not 1 <= duration_value <= 15:
-        raise HTTPException(400, "H3 duration must be between 1 and 15 seconds")
+    if not math.isfinite(duration_value) or duration_value < 1:
+        raise HTTPException(400, "H3 duration must be a finite number of at least 1 second")
     if not 0.2 <= megapixels_value <= 2.0:
         raise HTTPException(400, "H3 megapixels must be between 0.2 and 2.0")
 

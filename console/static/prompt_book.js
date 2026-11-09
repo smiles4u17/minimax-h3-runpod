@@ -344,15 +344,15 @@ function pbClipSeconds() {
 function pbApplyWindow(startSeconds, durationSeconds, clipOverride) {
   const clip = clipOverride == null ? pbClipSeconds() : clipOverride;
   let duration = Number(durationSeconds);
-  if (!Number.isFinite(duration) || duration <= 0) duration = 5;
-  duration = Math.min(15, Math.max(1, duration));
+  if (!Number.isFinite(duration) || duration <= 0) duration = 15;
+  duration = Math.max(1, duration);
   let start = Number(startSeconds);
   if (!Number.isFinite(start) || start < 0) start = 0;
   if (clip > 1) start = Math.min(start, clip - 1);
   else if (clip > 0) start = 0;
-  const room = clip > 0 ? Math.max(0, clip - start) : 15;
+  const room = clip > 0 ? Math.max(0, clip - start) : Infinity;
   if (room > 0) duration = Math.min(duration, room);
-  duration = Math.min(15, Math.max(1, duration));
+  duration = Math.max(1, duration);
   start = Math.round(start * 10) / 10;
   duration = Math.round(duration * 10) / 10;
   PB.syncing = true;
@@ -392,7 +392,7 @@ function pbSyncDurationFromTrim() {
   const length = Number(endRaw) - start;
   if (!Number.isFinite(length) || length <= 0) return;
   const clip = pbClipSeconds();
-  const room = clip > 0 ? Math.max(0, clip - start) : 15;
+  const room = clip > 0 ? Math.max(0, clip - start) : Infinity;
   let value = Math.min(15, length);
   if (room > 0) value = Math.min(value, room);
   value = Math.max(1, Math.round(value * 10) / 10);
@@ -420,9 +420,9 @@ function pbLoadPreview(id) {
   video.removeAttribute('src');
   const scene = (PB.catalog?.videos || []).find(row => row.id === id);
   const catalogLength = Number(scene?.duration_sec) || 0;
-  pbApplyWindow(keepStart, keep || catalogLength || 5, catalogLength);
+  pbApplyWindow(keepStart, keep || Math.min(15, catalogLength || 15), catalogLength);
   video.onloadedmetadata = () => {
-    const length = PB.durationTouched ? Number(val('pb_duration')) : video.duration;
+    const length = PB.durationTouched ? Number(val('pb_duration')) : Math.min(15, video.duration);
     const start = PB.startTouched ? Number(val('pb_start')) : 0;
     pbApplyWindow(start, length, video.duration);
   };
@@ -643,7 +643,7 @@ async function runPromptBook() {
       beta: pbChecked('pb_beta'),
       character_swap: pbChecked('pb_character_swap'),
       opening_frame: pbChecked('pb_opening_frame'),
-      duration: Number(val('pb_duration')) || 5,
+      duration: Number(val('pb_duration')) || 15,
       trim_start: val('pb_video_start') || '0',
       trim_end: val('pb_video_end') || '',
       aspect_ratio: val('pb_aspect_ratio'),
@@ -683,8 +683,8 @@ function bindPromptBook() {
     const fields = document.querySelector('#promptbook .videoTools .fields.compact');
     if (fields && !$('pb_length')) {
       const label = document.createElement('label');
-      label.title = 'Generated video length, 1 to 15 seconds. This is the MiniMax H3 duration.';
-      label.innerHTML = 'Length (seconds)<input id="pb_length" type="number" min="1" max="15" step="0.1" value="5">';
+      label.title = 'Generated video length, at least 1 second. This is the MiniMax H3 duration.';
+      label.innerHTML = 'Length (seconds)<input id="pb_length" type="number" min="1" step="0.1" value="15">';
       fields.prepend(label);
     }
     const startInput = $('pb_video_start');
@@ -777,7 +777,7 @@ function bindPromptBook() {
       const raw = val(id).trim();
       if (!raw || raw.endsWith('.')) return;
       PB.startTouched = true;
-      pbApplyWindow(raw, Number(val('pb_duration')) || 5);
+      pbApplyWindow(raw, Number(val('pb_duration')) || 15);
     });
   }
   pbH3Summary();

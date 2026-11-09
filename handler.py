@@ -4,6 +4,7 @@ import base64
 import copy
 import ipaddress
 import json
+import math
 import mimetypes
 import os
 import re
@@ -350,12 +351,12 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
     if not workflow["138"]["inputs"]["value"]:
         raise InputError("prompt is required")
 
-    duration = float(payload.get("duration", 5.0))
+    duration = float(payload.get("duration", 15.0))
     megapixels = float(payload.get("megapixels", 0.6))
     steps = int(payload.get("steps", 6))
     threshold = float(payload.get("cache_threshold", 0.18))
-    if not 1 <= duration <= 15:
-        raise InputError("duration must be between 1 and 15 seconds")
+    if not math.isfinite(duration) or duration < 1:
+        raise InputError("duration must be a finite number of at least 1 second")
     if not 0.2 <= megapixels <= 2.0:
         raise InputError("megapixels must be between 0.2 and 2.0")
     turbo_enabled = _payload_bool(payload.get("turbo_enabled"), default=True)
@@ -672,7 +673,7 @@ def _patch_fl2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
 
 
 def _output_frame_count(payload: dict[str, Any]) -> int:
-    raw = max(5, round(float(payload.get("duration", 7)) * 24))
+    raw = max(5, round(float(payload.get("duration", 15)) * 24))
     return raw + (5 - (raw % 17)) % 17
 
 

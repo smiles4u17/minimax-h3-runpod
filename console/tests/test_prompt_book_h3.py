@@ -119,7 +119,7 @@ class PromptBookH3Tests(unittest.TestCase):
         self.assertEqual(request["megapixels"], 0.2)
         self.assertEqual(request["final_megapixels"], 1.0)
         self.assertEqual(request["duration"], 15.0)
-        self.assertTrue(meta["duration_clamped"])
+        self.assertFalse(meta["duration_clamped"])
         self.assertEqual(request["aspect_ratio"], "9:16 (Portrait Widescreen)")
         self.assertEqual(request["photo_paths"][:3], [r"C:\stills\ada.jpg", r"C:\stills\bea.jpg", r"C:\stills\ada-2.jpg"])
         self.assertEqual(request["reference_video_paths"], [r"C:\clips\clip.mp4"])
@@ -166,8 +166,8 @@ class PromptBookH3Tests(unittest.TestCase):
             catalog=self.catalog(),
             baked={"prompt": "Completely replace <Subject 3> with <Subject 1>."},
         )
-        self.assertEqual(too_long["duration"], 15.0)
-        self.assertTrue(too_long_meta["duration_clamped"])
+        self.assertEqual(too_long["duration"], 20.0)
+        self.assertFalse(too_long_meta["duration_clamped"])
 
     def test_eight_step_and_prompt_override(self):
         request, meta = prompt_book_h3.build_prompt_book_h3_request(

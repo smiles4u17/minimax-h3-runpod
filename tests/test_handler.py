@@ -107,6 +107,16 @@ class HistoryPollTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_long_duration_is_not_capped_and_defaults_to_fifteen(self):
+        for duration in (15, 30, 60):
+            graph, _ = handler.build_preset({'task': 't2v', 'prompt': 'robot', 'duration': duration})
+            self.assertEqual(graph['132']['inputs']['value'], duration)
+        graph, _ = handler.build_preset({'task': 't2v', 'prompt': 'robot'})
+        self.assertEqual(graph['132']['inputs']['value'], 15)
+        for duration in (float('inf'), float('nan'), 0):
+            with self.assertRaises(handler.InputError):
+                handler.build_preset({'task': 't2v', 'prompt': 'robot', 'duration': duration})
+
     def test_text_only_does_not_materialize_stale_frames(self):
         with mock.patch.object(handler, "_materialize_asset", side_effect=AssertionError("stale media")):
             graph, meta = handler.build_preset({"task": "t2v", "prompt": "A toy robot", "first_frame": asset("stale.png")})
