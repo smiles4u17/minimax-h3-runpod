@@ -102,6 +102,15 @@ vm.runInContext(source, context);
   assert.equal(sent.reference_resolution, 'original');
   assert.equal(sent.latent_upscale_model, generation.latent_upscale_model);
   assert.equal(sent.latent_upscale_precision, 'auto');
+  for (const duration of [20, 30, 60]) {
+    Object.assign(values, {pb_duration: String(duration), pb_video_start: '10',
+      pb_video_end: String(10 + duration), pb_start: '10'});
+    await vm.runInContext('runPromptBook()', context);
+    assert.equal(sent.duration, duration, 'Send-time trim sync must preserve long durations');
+    assert.equal(sent.trim_start, '10');
+    assert.equal(sent.trim_end, String(10 + duration));
+  }
+  Object.assign(values, {pb_video_start: '145', pb_start: '145'});
   values.pb_video_end = '145';
   sent = null;
   await assert.rejects(vm.runInContext('runPromptBook()', context), /Trim end must be after/);

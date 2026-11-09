@@ -393,7 +393,7 @@ function pbSyncDurationFromTrim() {
   if (!Number.isFinite(length) || length <= 0) return;
   const clip = pbClipSeconds();
   const room = clip > 0 ? Math.max(0, clip - start) : Infinity;
-  let value = Math.min(15, length);
+  let value = length;
   if (room > 0) value = Math.min(value, room);
   value = Math.max(1, Math.round(value * 10) / 10);
   const startChanged = Math.abs((Number(val('pb_start')) || 0) - startShown) >= 0.05;
