@@ -6,21 +6,22 @@ import test_handler
 from h3_workflow_options import validate_keyframes
 
 class VariantTests(unittest.TestCase):
-    def test_legacy_workflows_use_context_and_sol(self):
+    def test_legacy_workflows_skip_context_and_use_sol(self):
         for task in ('t2v', 'fl2v', 'r2v'):
             graph, meta = handler.build_preset({'task': task, 'prompt': 'A toy robot',
                 'context_windows': True, 'references': [asset('robot.png')],
                 'first_frame': asset('robot.png')})
-            self.assertEqual(graph['126']['inputs']['model'], ['9180', 0])
+            self.assertNotIn('9180', graph)
             self.assertEqual(graph['122']['inputs']['vae'], ['9181', 0])
             self.assertTrue(meta['context_windows'])
 
-    def test_sol_decode_and_context_reach_both_passes(self):
+    def test_context_only_reaches_refinement(self):
         for variant in ('fflf_20260920', 'ref2v_20260920'):
             for attention in ('sage', 'native', 'sla', 'sol-attn'):
                 graph, meta = self.build(variant, context_windows=True, attention=attention,
                                         latent_upscale=True, diagnostic_frames=True)
-                self.assertEqual(graph['126']['inputs']['model'], ['9180', 0])
+                self.assertEqual(graph['126']['inputs']['model'], graph['9180']['inputs']['model'])
+                self.assertEqual(graph['124']['inputs']['model'], graph['9180']['inputs']['model'])
                 self.assertEqual(graph['9306']['inputs']['model'], ['9180', 0])
                 self.assertEqual(graph['9180']['inputs']['context_length'], 124)
                 self.assertEqual(graph['9180']['inputs']['context_overlap'], 39)

@@ -84,6 +84,10 @@ def apply_variant(graph, payload, materialize, model_name):
             model = graph[model[0]]['inputs']['model']
         if graph[model[0]]['class_type'] == 'MiniMaxH3FirstBlockCache':
             model = graph[model[0]]['inputs']['model']
+        if options['context_windows']:
+            model = add('9180', 'MiniMaxH3ContextWindows', model=model,
+                        context_length=124, context_overlap=39, fuse_method='pyramid',
+                        freenoise=True, split_conds_to_windows=False)
         add('9306', 'BasicGuider', model=model, conditioning=second_conditioning)
         mode = options['second_pass_sigma']
         schedules = REFINE_SIGMAS if clean_refine else SIGMAS

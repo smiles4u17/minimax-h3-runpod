@@ -13,7 +13,7 @@ The selected reference encoder and audio VAE retain their existing connections.
 
 `context_windows` is a strict boolean, off by default. When enabled, native
 MiniMaxH3ContextWindows is placed after LoRA/attention patches and before the
-sampler model consumers. Both passes inherit it, including PDD's dense refinement.
+second-pass guider. The first pass uses the full sequence. Single-pass serverless jobs skip windowing.
 Native defaults: 124 real frames, 39 overlap, pyramid fusion, FreeNoise on,
 split_conds_to_windows off. FirstBlockCache must be off: its cache is not keyed
 by context window. Other attention selections remain independently available.

@@ -511,13 +511,6 @@ def _patch_common(workflow: dict[str, Any], spec: dict[str, Any], payload: dict[
         workflow["9160"] = {"class_type": "BlockSparseAttention", "inputs": inputs}
         model = ["9160", 0]
 
-    runtime = runtime_options(payload)
-    if runtime['context_windows']:
-        workflow['9180'] = {'class_type': 'MiniMaxH3ContextWindows', 'inputs': {
-            'model': model, 'context_length': 124, 'context_overlap': 39,
-            'fuse_method': 'pyramid', 'freenoise': True, 'split_conds_to_windows': False}}
-        model = ['9180', 0]
-
     if cache_enabled:
         workflow[spec["cache"]]["inputs"]["threshold"] = threshold
         workflow[spec["cache"]]["inputs"]["model"] = model
