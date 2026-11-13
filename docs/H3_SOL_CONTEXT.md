@@ -19,8 +19,7 @@ split_conds_to_windows off. FirstBlockCache must be off: its cache is not keyed
 by context window. Other attention selections remain independently available.
 
 All legacy and dated T2V, FL2V and Ref2V preset builders use the shared path.
-The three downloadable editor templates have Sol decode and a bypassed context
-node (Ctrl+B to enable inside the subgraph where applicable). Original encoder
+The three downloadable editor templates are single-pass and use Sol decode with full-sequence sampling. Original encoder
 loaders remain in place. To roll back decoding, select Original VAE; to roll
 back windowed sampling, clear Context windows. No measured speedup is claimed.
 
