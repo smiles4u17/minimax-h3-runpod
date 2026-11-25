@@ -560,6 +560,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["130"]["inputs"]["audio"], ["8501", 0])
         self.assertEqual(metadata["task"], "r2v")
 
+    def test_r2v_original_audio_bypasses_conditioning_and_replaces_output(self):
+        for task, variant in (("r2v", "legacy"), ("r2v_20260920", "ref2v_20260920")):
+            with self.subTest(task=task):
+                base = {"task": task, "workflow_variant": variant, "prompt": "A toy robot.",
+                        "reference_videos": [asset("scene.mp4")], "duration": 2,
+                        "reference_video_settings": [{"start_frame": 24, "frame_load_cap": 48}],
+                        "latent_upscale": False, "rtx_upscale": False, "turbo_enabled": False}
+                original, _ = handler.build_preset({
+                    **base, "reference_video_audio": [False], "passthrough_video_audio": [True]})
+                self.assertEqual(original["130"]["inputs"]["audio"], ["8200", 2])
+                self.assertNotIn("ref_video_audios.ref_video_audio_0", original["136"]["inputs"])
+                self.assertEqual(original["8200"]["inputs"]["skip_first_frames"], 24)
+                self.assertEqual(original["8200"]["inputs"]["frame_load_cap"], 48)
+                generated, _ = handler.build_preset({**base, "reference_video_audio": [True]})
+                self.assertEqual(generated["130"]["inputs"]["audio"], ["121", 0])
+                self.assertEqual(generated["136"]["inputs"]["ref_video_audios.ref_video_audio_0"], ["8200", 2])
+                silent, _ = handler.build_preset({
+                    **base, "reference_video_audio": [False], "mute_output_audio": True})
+                self.assertNotIn("audio", silent["130"]["inputs"])
+
     def test_r2v_preserves_short_reference_cap_for_long_output(self):
         for task, variant in [('r2v', 'legacy'), ('r2v_20260920', 'ref2v_20260920')]:
             workflow, _ = handler.build_preset({

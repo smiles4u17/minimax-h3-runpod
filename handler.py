@@ -675,6 +675,7 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
     videos = payload.get("reference_videos") or []
     audios = payload.get("reference_audios") or ([] if not payload.get("audio") else [payload["audio"]])
     video_audio = payload.get("reference_video_audio") or []
+    passthrough_audio = payload.get("passthrough_video_audio") or []
     video_settings = payload.get("reference_video_settings") or []
     if not isinstance(references, list) or len(references) > 9:
         raise InputError("references must contain up to 9 images")
@@ -684,6 +685,8 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
         raise InputError("reference_audios must contain up to 3 audio clips")
     if not isinstance(video_settings, list):
         raise InputError("reference_video_settings must be a list")
+    if not isinstance(passthrough_audio, list) or len(passthrough_audio) > len(videos) or sum(map(bool, passthrough_audio)) > 1:
+        raise InputError("Choose at most one reference video for original output audio")
     if not references and not videos and not audios:
         raise InputError("r2v requires at least one image, video, or audio reference")
     for index, asset in enumerate(references):
@@ -695,6 +698,7 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
         }
         workflow["136"]["inputs"][f"ref_images.ref_image_{index}"] = [node_id, 0]
 
+    output_audio = None
     for index, asset in enumerate(videos):
         load_id = str(8200 + index)
         settings = video_settings[index] if index < len(video_settings) else {}
@@ -727,7 +731,12 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
             "_meta": {"title": f"REFERENCE VIDEO {index + 1}"},
         }
         workflow["136"]["inputs"][f"ref_videos.ref_video_{index}"] = [load_id, 0]
-        if index >= len(video_audio) or bool(video_audio[index]):
+        as_reference = index >= len(video_audio) or bool(video_audio[index])
+        if index < len(passthrough_audio) and bool(passthrough_audio[index]):
+            if as_reference:
+                raise InputError("Video audio cannot be both a reference and the output track")
+            output_audio = [load_id, 2]
+        if as_reference:
             workflow["136"]["inputs"][f"ref_video_audios.ref_video_audio_{index}"] = [load_id, 2]
 
     first_output_audio: list[Any] | None = None
@@ -748,7 +757,11 @@ def _patch_r2v(workflow: dict[str, Any], payload: dict[str, Any]) -> None:
         workflow["136"]["inputs"][f"ref_audios.ref_audio_{index}"] = reference
         if first_output_audio is None:
             first_output_audio = reference
-    if first_output_audio and bool(payload.get("use_reference_audio_as_output", False)):
+    if bool(payload.get("mute_output_audio", False)):
+        workflow["130"]["inputs"].pop("audio", None)
+    elif output_audio:
+        workflow["130"]["inputs"]["audio"] = output_audio
+    elif first_output_audio and bool(payload.get("use_reference_audio_as_output", False)):
         workflow["130"]["inputs"]["audio"] = first_output_audio
 
     edit = payload.get("masked_edit")
