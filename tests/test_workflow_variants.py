@@ -201,6 +201,42 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(graph['9308']['inputs']['sigmas'], ['9300', 1])
         self.assertEqual(meta['first_pass_steps'], 3)
 
+    def test_explicit_split_and_custom_second_pass_are_independent(self):
+        graph, meta = self.build('ref2v_20260920', turbo_enabled=False, pass1_split_enabled=True,
+                                 second_pass_sigma=6, refine_steps=4, refine_start_sigma=.6)
+        self.assertEqual(graph['125']['inputs']['sigmas'], ['9300', 0])
+        self.assertEqual(meta['first_pass_steps'], 3)
+        values = [float(x) for x in graph['9307']['inputs']['sigmas'].split(',')]
+        self.assertEqual(len(values), 5)
+        self.assertAlmostEqual(values[1], .45)
+        self.assertEqual(values[-1], 0)
+        graph, meta = self.build('fflf_20260920', pass1_split_enabled=False, second_pass_sigma=7,
+                                 refine_sigmas='0.4, 0.2, 1e-6, 0')
+        self.assertNotIn('9300', graph)
+        self.assertEqual(meta['first_pass_steps'], 8)
+        self.assertEqual(graph['9307']['inputs']['sigmas'], '0.4, 0.2, 0.000001, 0.0')
+        with self.assertRaisesRegex(ValueError, 'enabled first-pass split'):
+            self.build('fflf_20260920', pass1_split_enabled=False, second_pass_sigma=4)
+        with self.assertRaisesRegex(ValueError, 'must decrease'):
+            self.build(second_pass_sigma=7, refine_sigmas='0.4, 0.5, 0')
+
+    def test_text_to_video_and_masked_samimate_can_refine(self):
+        common = {'prompt': 'A toy robot', 'steps': 8, 'turbo_enabled': False,
+                  'pass1_split_enabled': True, 'pass1_split': 5, 'second_pass_sigma': 4}
+        text_graph, _ = handler.build_preset({**common, 'task': 't2v', 'latent_upscale': True})
+        self.assertEqual(text_graph['9305']['inputs']['width'], ['9302', 0])
+        self.assertNotIn('first_frame', text_graph['9305']['inputs'])
+        masked_graph, _ = handler.build_preset({
+            **common, 'task': 'r2v_masked', 'refine_enabled': True,
+            'references': [asset('robot.png')],
+            'masked_edit': {'source': asset('source.mkv'), 'mask': asset('mask.mkv'), 'width': 832, 'height': 480}
+        })
+        self.assertEqual(masked_graph['125']['inputs']['latent_image'], ['8702', 0])
+        self.assertEqual(masked_graph['9308']['inputs']['latent_image'], ['125', 1])
+        self.assertEqual(masked_graph['9308']['inputs']['sigmas'], ['9300', 1])
+        self.assertEqual(masked_graph['122']['inputs']['samples'], ['9308', 0])
+        self.assertNotIn('9304', masked_graph)
+
     def test_diagnostic_frames_capture_both_refine_boundaries(self):
         graph, _ = self.build('ref2v_20260920', diagnostic_frames=True)
         self.assertEqual(graph['9320']['inputs']['samples'], ['125', 1])

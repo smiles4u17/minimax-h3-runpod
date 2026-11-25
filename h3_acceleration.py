@@ -34,7 +34,8 @@ def recipe(data):
                       attention=data.get('attention') or 'auto')
         if result.get('latent_upscale', True) and int(result.get('second_pass_sigma', 2)) == 4:
             raise ValueError('PDD uses an exact complete first pass; select a low-noise refinement sigma option')
-        result['pass1_split'] = 8
+        if 'pass1_split_enabled' not in data:
+            result['pass1_split'] = 8
     else:
         result.update(attention='sla', attention_profile='sla', sparse_trained_weights=True,
                       sparse_keep_percent=15., sparse_start_percent=0., sparse_end_percent=1.,
@@ -43,7 +44,8 @@ def recipe(data):
                  and str(x.get('name', '')).replace('\\', '/').split('/')[-1] != SLA_ADAPTER]
         loras.append({'name': 'H3/' + SLA_ADAPTER, 'strength': 1., 'enabled': True})
         result['loras'] = loras
-        result['pass1_split'] = 4
+        if 'pass1_split_enabled' not in data:
+            result['pass1_split'] = 4
         if int(result.get('second_pass_sigma', 2)) == 4:
             raise ValueError('SLA uses a complete four-step first pass; select low-noise refinement')
     return result

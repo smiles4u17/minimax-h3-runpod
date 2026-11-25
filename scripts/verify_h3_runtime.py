@@ -41,6 +41,14 @@ module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 assert module._EXTENSION is not None, 'PDD extension failed to import'
+samimate = root / 'custom_nodes/samimate_h3/__init__.py'
+spec = importlib.util.spec_from_file_location('samimate_h3_gate', samimate)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert 'SAMimateH3MaskedTarget' in module.NODE_CLASS_MAPPINGS, 'SAMimate mask node failed to register'
+from comfy_extras.nodes_custom_sampler import ManualSigmas, SplitSigmas
+assert ManualSigmas.define_schema().node_id == 'ManualSigmas'
+assert SplitSigmas.define_schema().node_id == 'SplitSigmas'
 for package, version in {"comfy-aimdo": "0.6.0", "comfy-kitchen": "0.2.40", "torch": "2.10.0+cu130", "sageattention": "2.2.0"}.items():
     actual = importlib.metadata.version(package)
     assert actual == version, f"Unvalidated {package}: {actual}; expected {version}"
