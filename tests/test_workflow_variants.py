@@ -108,6 +108,36 @@ class VariantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'four'):
             self.build('fflf_20260920', photos=photos)
 
+    def assert_image_crop(self, graph, conditioning, key, original):
+        inputs = graph[conditioning]['inputs']
+        crop = graph[inputs[key][0]]
+        self.assertEqual(crop['class_type'], 'ImageResizeKJv2')
+        self.assertEqual(crop['inputs']['image'], [original, 0])
+        self.assertEqual(graph[original]['class_type'], 'LoadImage')
+        self.assertEqual((crop['inputs']['width'], crop['inputs']['height']),
+                         (inputs['width'], inputs['height']))
+        self.assertEqual(crop['inputs']['keep_proportion'], 'crop')
+        self.assertEqual(crop['inputs']['crop_position'], 'center')
+
+    def test_input_crops_use_original_images_at_each_pass_size(self):
+        graph, _ = self.build(crop_input_images=True, latent_upscale=True)
+        for conditioning in ('182', '9305'):
+            self.assert_image_crop(graph, conditioning, 'first_frame', '139')
+            self.assert_image_crop(graph, conditioning, 'last_frame', '901')
+        self.assertEqual(graph['182']['inputs']['width'], ['115', 0])
+        self.assertEqual(graph['9305']['inputs']['width'], ['9302', 0])
+
+    def test_input_crops_route_percentage_keyframes_and_ref2v_stills(self):
+        graph, _ = self.build(use_multi_image=True, crop_input_images=True, latent_upscale=True)
+        for conditioning in ('182', '9305'):
+            self.assert_image_crop(graph, conditioning, 'image_1', '9401')
+            self.assert_image_crop(graph, conditioning, 'image_2', '9402')
+        graph, _ = self.build('ref2v_20260920', crop_input_images=True, latent_upscale=True,
+                              photos=[asset(f'view-{i}.png') for i in range(9)], keyframe_positions=[])
+        for i in range(9):
+            self.assert_image_crop(graph, '136', f'ref_images.ref_image_{i}', str(8000 + i))
+        self.assertEqual(graph['9306']['inputs']['conditioning'], ['136', 0])
+
     def test_ref2v_empty_slots_keep_filled_reference_order(self):
         graph, _ = self.build('ref2v_20260920', photos=[None, asset('second.png')]+[None]*6+[asset('ninth.png')], keyframe_positions=[])
         refs = [key for key in graph['136']['inputs'] if key.startswith('ref_images.')]

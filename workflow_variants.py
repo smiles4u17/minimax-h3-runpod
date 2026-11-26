@@ -17,17 +17,38 @@ REFINE_SIGMAS = {1: "0.4500, 0.3000, 0.1500, 0.0000",
                  3: "0.4500, 0.3600, 0.2700, 0.1800, 0.0900, 0.0000",
                  5: "0.4500, 0.39375, 0.3375, 0.28125, 0.2250, 0.16875, 0.1125, 0.05625, 0.0000"}
 
+def crop_input_images(graph, conditioning, first_node_id):
+    inputs = graph[conditioning]['inputs']
+    image_keys = [key for key in inputs if key in ('first_frame', 'last_frame')
+                  or key.startswith('ref_images.ref_image_') or re.fullmatch(r'image_\d+', key)]
+    for index, key in enumerate(image_keys):
+        source = inputs[key]
+        original = graph[source[0]]
+        if original['class_type'] == 'ImageResizeKJv2':
+            source = original['inputs']['image']
+        node_id = str(first_node_id + index)
+        graph[node_id] = {'class_type': 'ImageResizeKJv2', 'inputs': {
+            'image': source, 'width': inputs['width'], 'height': inputs['height'],
+            'upscale_method': 'lanczos', 'keep_proportion': 'crop', 'crop_position': 'center',
+            'pad_color': '0, 0, 0', 'divisible_by': 2, 'device': 'cpu',
+        }}
+        inputs[key] = [node_id, 0]
+
+
 def apply_variant(graph, payload, materialize, model_name):
     options = workflow_options(payload)
     legacy = options['workflow_variant'] == 'legacy'
+    conditioning = '182' if payload['task'] in ('fl2v', 't2v') else '136'
+    crop_images = payload.get('crop_input_images') is True and not payload.get('masked_edit')
     if legacy and 'pass1_split_enabled' not in options:
+        if crop_images:
+            crop_input_images(graph, conditioning, 9500)
         return options
     multi = options['use_multi_image']
     photos = payload.get('photos', [])
     if not legacy:
         positions = (validate_reference_photos(photos) if payload['task'] == 'r2v' and not multi
                      else validate_keyframes(photos, payload.get('keyframe_positions', []), multi))
-    conditioning = '182' if payload['task'] in ('fl2v', 't2v') else '136'
     def add(n, kind, **inputs):
         graph[n] = {'class_type': kind, 'inputs': inputs}
         return [n, 0]
@@ -80,6 +101,8 @@ def apply_variant(graph, payload, materialize, model_name):
         if upscale and not reuse_references:
             graph['9305'] = copy.deepcopy(graph[conditioning])
             graph['9305']['inputs'].update(width=['9302',0], height=['9302',1])
+            if crop_images:
+                crop_input_images(graph, '9305', 9520)
             second_conditioning = ['9305', 0]
         # FirstBlockCache only belongs to pass one. Share all preceding LoRAs/attention.
         model = graph['126']['inputs']['model']
@@ -112,6 +135,8 @@ def apply_variant(graph, payload, materialize, model_name):
                        second_pass_sigmas=values if values is not None else 'remaining')
         if payload.get('pdd_enabled'):
             options['pdd_refinement'] = 'dense_base_without_pdd_heads'
+    if crop_images:
+        crop_input_images(graph, conditioning, 9500)
     images = ['122',0]
     if options['rtx_upscale']:
         ratio = str(payload.get('aspect_ratio','16:9')).split()[0]
